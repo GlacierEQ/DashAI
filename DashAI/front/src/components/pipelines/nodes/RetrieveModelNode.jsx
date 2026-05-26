@@ -1,13 +1,22 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import PropTypes from "prop-types";
-import { Button, Grid, Paper, Typography, LinearProgress } from "@mui/material";
-import { DataGrid } from "@mui/x-data-grid";
+import { Button, Grid, Paper, Typography } from "@mui/material";
+import {
+  MaterialReactTable,
+  useMaterialReactTable,
+} from "material-react-table";
+import { useTheme } from "@mui/material/styles";
+import { useTableLocalization } from "../../../utils/useTableLocalization";
 import { filterModels } from "../../../api/pipeline";
 import { useSnackbar } from "notistack";
 import { validateNode } from "../../../api/pipeline";
 import { useParams } from "react-router-dom";
-
-function RetrieveModelNode({ onClose, onSave, savedConfig, prevNodes }) {
+function RetrieveModelNode({
+  onClose,
+  onSave,
+  savedConfig = null,
+  prevNodes = [],
+}) {
   const datasetNode = prevNodes?.find((node) => node?.file_path && node?.id);
   const datasetId = datasetNode?.id ?? null;
   const [pipelines, setPipelines] = useState([]);
@@ -16,6 +25,8 @@ function RetrieveModelNode({ onClose, onSave, savedConfig, prevNodes }) {
   const { enqueueSnackbar } = useSnackbar();
   const { pipelineId } = useParams();
   const hasWarnedRef = useRef(false);
+  const theme = useTheme();
+  const localization = useTableLocalization();
 
   useEffect(() => {
     if (savedConfig?.model_path && pipelines.length > 0) {
@@ -78,16 +89,43 @@ function RetrieveModelNode({ onClose, onSave, savedConfig, prevNodes }) {
     }
   };
 
-  const columns = [
-    { field: "id", headerName: "ID", width: 80 },
-    { field: "name", headerName: "Name", flex: 1 },
-    {
-      field: "model",
-      headerName: "Model",
-      flex: 1,
-      valueGetter: (params) => params.row.train?.info || "Unknown",
-    },
-  ];
+  const columns = useMemo(
+    () => [
+      { accessorKey: "id", header: "ID", size: 80 },
+      { accessorKey: "name", header: "Name", grow: true },
+      {
+        id: "model",
+        header: "Model",
+        grow: true,
+        accessorFn: (row) => row.train?.info || "Unknown",
+      },
+    ],
+    [],
+  );
+
+  const table = useMaterialReactTable({
+    columns,
+    data: pipelines,
+    muiTableBodyCellProps: { sx: { whiteSpace: "pre" } },
+    state: { isLoading: loading },
+    getRowId: (row) => String(row.id),
+    enableRowSelection: false,
+    muiTableBodyRowProps: ({ row }) => ({
+      onClick: () => setSelectedModelId(row.original.id),
+      sx: {
+        cursor: "pointer",
+        backgroundColor:
+          row.original.id === selectedModelId
+            ? theme.palette.action.selected
+            : undefined,
+      },
+    }),
+    enablePagination: true,
+    initialState: { pagination: { pageSize: 5, pageIndex: 0 } },
+    localization,
+    enableFullScreenToggle: false,
+    enableDensityToggle: false,
+  });
 
   return (
     <Paper sx={{ p: 3 }}>
@@ -101,20 +139,8 @@ function RetrieveModelNode({ onClose, onSave, savedConfig, prevNodes }) {
         </Grid>
 
         <Grid size={{ xs: 12 }}>
-          <div style={{ height: 300 }}>
-            <DataGrid
-              rows={pipelines}
-              columns={columns}
-              loading={loading}
-              onRowClick={(params) => setSelectedModelId(params.id)}
-              selectionModel={selectedModelId ? [selectedModelId] : []}
-              pageSizeOptions={[5]}
-              checkboxSelection={false}
-              disableRowSelectionOnClick={false}
-              slots={{
-                loadingOverlay: LinearProgress,
-              }}
-            />
+          <div style={{ height: 300, overflow: "auto" }}>
+            <MaterialReactTable table={table} />
           </div>
         </Grid>
 
@@ -137,11 +163,6 @@ RetrieveModelNode.propTypes = {
   onSave: PropTypes.func.isRequired,
   savedConfig: PropTypes.object,
   prevNodes: PropTypes.arrayOf(PropTypes.object),
-};
-
-RetrieveModelNode.defaultProps = {
-  savedConfig: null,
-  prevNodes: [],
 };
 
 export default RetrieveModelNode;

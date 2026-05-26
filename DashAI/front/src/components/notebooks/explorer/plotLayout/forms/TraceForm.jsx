@@ -1,8 +1,9 @@
 import React from "react";
-import { TextField } from "@mui/material";
+import { Box, TextField } from "@mui/material";
 
 import DebouncedColorPicker from "../DebouncedColorPicker";
 import ColorscaleSelector from "../ColorscaleSelector";
+import { useTranslation } from "react-i18next";
 
 const usesColormap = (trace) =>
   ["heatmap", "surface", "scatter3d", "choropleth", "histogram2d"].includes(
@@ -16,12 +17,15 @@ export default function TraceForm({
   handleTraceChange,
   handleChange,
 }) {
+  const { t } = useTranslation(["datasets", "common"]);
+
   return (
-    <>
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
       {/* Common trace settings */}
       <TextField
-        label="Name"
-        variant="filled"
+        label={t("common:name")}
+        variant="outlined"
+        size="small"
         value={trace.name || ""}
         onChange={(e) => handleTraceChange(index, "name", e.target.value)}
         fullWidth
@@ -31,7 +35,7 @@ export default function TraceForm({
       {!usesColormap(trace) && (
         <>
           <DebouncedColorPicker
-            label="Marker Color"
+            label={t("datasets:label.markerColor")}
             value={
               trace.marker?.color ||
               layout.template.layout.colorway[
@@ -60,15 +64,16 @@ export default function TraceForm({
           />
 
           <DebouncedColorPicker
-            label="Colorbar Border Color"
+            label={t("datasets:label.colorbarBorderColor")}
             value={trace.colorbar?.bordercolor || "#FFFFFF"}
             onChange={(color) =>
               handleTraceChange(index, "colorbar.bordercolor", color)
             }
           />
           <TextField
-            label="Colorbar Border Width"
-            variant="filled"
+            label={t("datasets:label.colorbarBorderWidth")}
+            variant="outlined"
+            size="small"
             type="number"
             value={trace.colorbar?.borderwidth || 0}
             onChange={(e) =>
@@ -82,6 +87,6 @@ export default function TraceForm({
           />
         </>
       )}
-    </>
+    </Box>
   );
 }

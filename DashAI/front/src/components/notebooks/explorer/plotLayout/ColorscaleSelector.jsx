@@ -14,10 +14,12 @@ import {
   Divider,
   alpha,
   Alert,
+  useTheme,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import AddIcon from "@mui/icons-material/Add";
 import DebouncedColorPicker from "./DebouncedColorPicker";
+import { useTranslation } from "react-i18next";
 
 const COLORMAPS = [
   "Blackbody",
@@ -41,6 +43,7 @@ const COLORMAPS = [
 ];
 
 export default function ColorscaleSelector({ value, onChange }) {
+  const theme = useTheme();
   const isArrayMode = Array.isArray(value);
 
   const [mode, setMode] = useState(isArrayMode ? "array" : "preset");
@@ -52,6 +55,7 @@ export default function ColorscaleSelector({ value, onChange }) {
           [1, "rgb(255,255,255)"],
         ],
   );
+  const { t } = useTranslation(["datasets"]);
 
   const applyArrayChange = (updated) => {
     setLocalArray(updated);
@@ -90,25 +94,24 @@ export default function ColorscaleSelector({ value, onChange }) {
   return (
     <Box
       sx={{
-        bgcolor: "#474747",
-        p: 2,
-        borderBottom: "1px solid #7f7f7f",
+        bgcolor: theme.palette.ui.panelDark,
+        p: 1.5,
+        borderBottom: `1px solid ${theme.palette.ui.borderLight}`,
       }}
     >
-      <Stack spacing={3}>
+      <Stack spacing={2}>
         <Box>
           <Typography
-            variant="subtitle2"
+            variant="body2"
             color="text.secondary"
             sx={{
               fontWeight: 600,
               textTransform: "uppercase",
-              fontSize: "0.75rem",
               letterSpacing: "0.5px",
-              mb: 1.5,
+              mb: 1,
             }}
           >
-            Color Scale Mode
+            {t("datasets:label.colorscaleMode")}
           </Typography>
           <ToggleButtonGroup
             value={mode}
@@ -120,28 +123,30 @@ export default function ColorscaleSelector({ value, onChange }) {
             size="small"
             sx={{
               "& .MuiToggleButton-root": {
-                border: (theme) =>
-                  `1px solid ${alpha(theme.palette.primary.main, 0.3)}`,
+                border: `1px solid ${alpha(theme.palette.primary.main, 0.3)}`,
                 fontWeight: 500,
                 color: "text.secondary",
                 "&.Mui-selected": {
-                  backgroundColor: (theme) =>
-                    alpha(theme.palette.primary.main, 0.2),
-                  color: (theme) => theme.palette.primary.main,
-                  borderColor: (theme) => theme.palette.primary.main,
+                  backgroundColor: alpha(theme.palette.primary.main, 0.2),
+                  color: theme.palette.primary.main,
+                  borderColor: theme.palette.primary.main,
                 },
               },
             }}
           >
-            <ToggleButton value="preset">Preset Scale</ToggleButton>
-            <ToggleButton value="array">Custom Array</ToggleButton>
+            <ToggleButton value="preset">
+              {t("datasets:label.presetScale")}
+            </ToggleButton>
+            <ToggleButton value="array">
+              {t("datasets:label.customArray")}
+            </ToggleButton>
           </ToggleButtonGroup>
         </Box>
 
         <Divider
           sx={{
             width: "100%",
-            borderColor: alpha("#ffffff", 0.2),
+            borderColor: theme.palette.ui.divider,
           }}
         />
 
@@ -149,21 +154,20 @@ export default function ColorscaleSelector({ value, onChange }) {
           /* -------- PRESET MODE ---------- */
           <Box>
             <Typography
-              variant="subtitle2"
+              variant="body2"
               color="text.secondary"
               sx={{
                 fontWeight: 600,
                 textTransform: "uppercase",
-                fontSize: "0.75rem",
                 letterSpacing: "0.5px",
-                mb: 1.5,
+                mb: 1,
               }}
             >
-              Select Colorscale
+              {t("datasets:label.selectColorscale")}
             </Typography>
             <TextField
               select
-              label="Colorscale"
+              label={t("datasets:label.colorscale")}
               variant="outlined"
               size="small"
               value={typeof value === "string" ? value : ""}
@@ -173,13 +177,13 @@ export default function ColorscaleSelector({ value, onChange }) {
                 "& .MuiOutlinedInput-root": {
                   fontWeight: 500,
                   "& fieldset": {
-                    borderColor: alpha("#06b6d4", 0.3),
+                    borderColor: alpha(theme.palette.primary.main, 0.3),
                   },
                   "&:hover fieldset": {
-                    borderColor: "#06b6d4",
+                    borderColor: theme.palette.primary.main,
                   },
                   "&.Mui-focused fieldset": {
-                    borderColor: "#06b6d4",
+                    borderColor: theme.palette.primary.main,
                   },
                 },
                 "& .MuiOutlinedInput-input": {
@@ -202,29 +206,27 @@ export default function ColorscaleSelector({ value, onChange }) {
           /* -------- ARRAY MODE ---------- */
           <Box>
             <Typography
-              variant="subtitle2"
+              variant="body2"
               color="text.secondary"
               sx={{
                 fontWeight: 600,
                 textTransform: "uppercase",
-                fontSize: "0.75rem",
                 letterSpacing: "0.5px",
-                mb: 1.5,
+                mb: 1,
               }}
             >
-              Color Stops
+              {t("datasets:label.colorStops")}
             </Typography>
             {localArray.length < 2 && (
               <Alert severity="warning" sx={{ mb: 2 }}>
-                No color stops defined. Please add at least two color stops.
+                {t("datasets:label.atLeastTwoColorStopsRequired")}
               </Alert>
             )}
             {localArray.length >= 2 &&
               (localArray[0][0] !== 0 ||
                 localArray[localArray.length - 1][0] !== 1) && (
                 <Alert severity="warning" sx={{ mb: 2 }}>
-                  Color stops must include positions 0 at the start and 1 at the
-                  end.
+                  {t("datasets:label.firstLastStopsAtExtremes")}
                 </Alert>
               )}
 
@@ -234,16 +236,18 @@ export default function ColorscaleSelector({ value, onChange }) {
                   key={i}
                   variant="outlined"
                   sx={{
-                    background: (theme) =>
-                      alpha(theme.palette.background.paper, 0.4),
-                    border: (theme) =>
-                      `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
+                    background: alpha(theme.palette.background.paper, 0.4),
+                    border: `1px solid ${alpha(
+                      theme.palette.primary.main,
+                      0.15,
+                    )}`,
                     transition: "all 0.2s ease",
                     "&:hover": {
-                      border: (theme) =>
-                        `1px solid ${theme.palette.primary.main}`,
-                      boxShadow: (theme) =>
-                        `0 2px 8px ${alpha(theme.palette.primary.main, 0.15)}`,
+                      border: `1px solid ${theme.palette.primary.main}`,
+                      boxShadow: `0 2px 8px ${alpha(
+                        theme.palette.primary.main,
+                        0.15,
+                      )}`,
                     },
                   }}
                 >
@@ -255,26 +259,29 @@ export default function ColorscaleSelector({ value, onChange }) {
                       sx={{ width: "100%" }}
                     >
                       {/* Stop Index Label */}
-                      <Box
+                      <Typography
+                        variant="body1"
+                        component="div"
                         sx={{
                           minWidth: 32,
                           height: 32,
                           borderRadius: "50%",
-                          backgroundColor: (theme) =>
-                            alpha(theme.palette.primary.main, 0.15),
+                          backgroundColor: alpha(
+                            theme.palette.primary.main,
+                            0.15,
+                          ),
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
                           fontWeight: 600,
-                          fontSize: "0.875rem",
-                          color: "#06b6d4",
+                          color: theme.palette.primary.main,
                         }}
                       >
                         {i + 1}
-                      </Box>
+                      </Typography>
 
                       <TextField
-                        label="Position"
+                        label={t("datasets:label.position")}
                         type="number"
                         variant="outlined"
                         size="small"
@@ -293,20 +300,23 @@ export default function ColorscaleSelector({ value, onChange }) {
                           width: 100,
                           "& .MuiOutlinedInput-root": {
                             "& fieldset": {
-                              borderColor: alpha("#06b6d4", 0.3),
+                              borderColor: alpha(
+                                theme.palette.primary.main,
+                                0.3,
+                              ),
                             },
                             "&:hover fieldset": {
-                              borderColor: "#06b6d4",
+                              borderColor: theme.palette.primary.main,
                             },
                             "&.Mui-focused fieldset": {
-                              borderColor: "#06b6d4",
+                              borderColor: theme.palette.primary.main,
                             },
                           },
                         }}
                       />
 
                       <DebouncedColorPicker
-                        label="Color"
+                        label={t("datasets:label.color")}
                         value={item[1]}
                         onChange={(color) => handleArrayColorChange(i, color)}
                       />
@@ -319,8 +329,10 @@ export default function ColorscaleSelector({ value, onChange }) {
                         onClick={() => removeStop(i)}
                         sx={{
                           "&:hover": {
-                            backgroundColor: (theme) =>
-                              alpha(theme.palette.error.main, 0.1),
+                            backgroundColor: alpha(
+                              theme.palette.error.main,
+                              0.1,
+                            ),
                           },
                         }}
                       >
@@ -340,18 +352,16 @@ export default function ColorscaleSelector({ value, onChange }) {
                   textTransform: "none",
                   fontWeight: 500,
                   borderStyle: "dashed",
-                  borderColor: (theme) =>
-                    alpha(theme.palette.primary.main, 0.4),
-                  color: "#06b6d4",
+                  borderColor: alpha(theme.palette.primary.main, 0.4),
+                  color: theme.palette.primary.main,
                   "&:hover": {
                     borderStyle: "dashed",
-                    backgroundColor: (theme) =>
-                      alpha(theme.palette.primary.main, 0.08),
-                    borderColor: (theme) => theme.palette.primary.main,
+                    backgroundColor: alpha(theme.palette.primary.main, 0.08),
+                    borderColor: theme.palette.primary.main,
                   },
                 }}
               >
-                Add Color Stop
+                {t("datasets:button.addColorStop")}
               </Button>
             </Stack>
           </Box>

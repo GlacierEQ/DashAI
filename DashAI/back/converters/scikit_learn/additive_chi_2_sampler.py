@@ -1,4 +1,3 @@
-import pyarrow as pa
 from sklearn.kernel_approximation import (
     AdditiveChi2Sampler as AdditiveChi2SamplerOperation,
 )
@@ -12,37 +11,81 @@ from DashAI.back.core.schema_fields import (
     schema_field,
 )
 from DashAI.back.core.schema_fields.base_schema import BaseSchema
+from DashAI.back.core.utils import MultilingualString
 from DashAI.back.types.dashai_data_type import DashAIDataType
-from DashAI.back.types.value_types import Float
+from DashAI.back.types.value_types import Float, Integer
 
 
 class AdditiveChi2SamplerSchema(BaseSchema):
+    """Schema for AdditiveChi2Sampler hyperparameters."""
+
     sample_steps: schema_field(
         int_field(ge=1),
         2,
-        "The number of sample steps (shuffling) to perform.",
+        description=MultilingualString(
+            en="The number of sample steps (shuffling) to perform.",
+            es="Número de pasos de muestreo (mezcla) a realizar.",
+            pt="O número de passos de amostragem (embaralhamento) a realizar.",
+        ),
     )  # type: ignore
     sample_interval: schema_field(
         none_type(float_field(ge=1.0)),
         None,
-        "The number of samples to generate between each original sample.",
+        description=MultilingualString(
+            en="The number of samples generated between each original sample.",
+            es="Número de muestras generadas entre cada muestra original.",
+            pt="O número de amostras geradas entre cada amostra original.",
+        ),
     )  # type: ignore
 
 
 class AdditiveChi2Sampler(
     PolynomialKernelConverter, SklearnWrapper, AdditiveChi2SamplerOperation
 ):
-    """Scikit-learn's AdditiveChi2Sampler wrapper for DashAI."""
+    """Approximate the additive chi-squared kernel using Fourier sampling.
+
+    Maps features to a higher-dimensional space that approximates the additive
+    chi-squared kernel, enabling efficient linear classification. Wraps
+    scikit-learn's ``AdditiveChi2Sampler``.
+    """
 
     SCHEMA = AdditiveChi2SamplerSchema
-    DESCRIPTION = (
-        "Uses sampling the fourier transform of the kernel characteristic "
-        "at regular intervals."
+    DESCRIPTION = MultilingualString(
+        en=(
+            "Uses sampling the Fourier transform of the kernel characteristic "
+            "at regular intervals."
+        ),
+        es=(
+            "Utiliza muestreo de la transformada de Fourier de la función kernel "
+            "a intervalos regulares."
+        ),
+        pt=(
+            "Utiliza amostragem da transformada de Fourier da característica do "
+            "kernel em intervalos regulares."
+        ),
     )
-    CATEGORY = "Polynomial & Kernel Methods"
-    DISPLAY_NAME = "Additive Chi² Sampler"
+    DISPLAY_NAME = MultilingualString(
+        en="Additive Chi² Sampler",
+        es="Muestreador Chi²",
+        pt="Amostrador Qui-2 Aditivo",
+    )
     IMAGE_PREVIEW = "additive_chi2_sampler.png"
 
+    metadata = {"allowed_types": [Float, Integer], "allowed_dtypes": []}
+
     def get_output_type(self, column_name: str = None) -> DashAIDataType:
-        """Returns Float64 as the output type for transformed data."""
+        """Return the DashAI data type produced by this converter for a column.
+
+        Parameters
+        ----------
+        column_name : str, optional
+            Not used; all output columns share the same type. Defaults to None.
+
+        Returns
+        -------
+        DashAIDataType
+            A Float type backed by ``pyarrow.float64()``.
+        """
+        import pyarrow as pa
+
         return Float(arrow_type=pa.float64())

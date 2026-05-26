@@ -4,12 +4,6 @@ import logging
 from abc import ABCMeta, abstractmethod
 from typing import Final
 
-import numpy as np
-import optuna
-import plotly
-import plotly.graph_objects as go
-from optuna.importance import FanovaImportanceEvaluator
-
 from DashAI.back.config_object import ConfigObject
 
 log = logging.getLogger(__name__)
@@ -70,6 +64,19 @@ class BaseOptimizer(ConfigObject, metaclass=ABCMeta):
             "Optimization modules must implement get_trials_values method."
         )
 
+    @abstractmethod
+    def get_best_params(self):
+        """
+        Get the best hyperparameters found during optimization
+
+        Returns
+        -------
+            best_params (dict): Dictionary with the best hyperparameters found.
+        """
+        raise NotImplementedError(
+            "Optimization modules must implement get_best_params method."
+        )
+
     def history_objective_plot(self, trials, goal_metric):
         """
         Plot for the goal metric achieved per trial.
@@ -82,6 +89,11 @@ class BaseOptimizer(ConfigObject, metaclass=ABCMeta):
         -------
             fig (json): json with the plot data
         """
+        # Lazy imports
+        import numpy as np
+        import plotly
+        import plotly.graph_objects as go
+
         x = list(range(1, len(trials) + 1))
         y = [trial["value"] for trial in trials]
         cumulative = (
@@ -138,6 +150,10 @@ class BaseOptimizer(ConfigObject, metaclass=ABCMeta):
         -------
             fig (json): json with the plot data
         """
+        # Lazy imports
+        import plotly
+        import plotly.graph_objects as go
+
         param_names = list(trials[0]["params"].keys())
 
         traces = []
@@ -206,6 +222,10 @@ class BaseOptimizer(ConfigObject, metaclass=ABCMeta):
         -------
             fig (json): json with the plot data
         """
+        # Lazy imports
+        import plotly
+        import plotly.graph_objects as go
+
         param_names = list(trials[0]["params"].keys())
         traces = []
         scatter_traces = []
@@ -300,6 +320,12 @@ class BaseOptimizer(ConfigObject, metaclass=ABCMeta):
         -------
             fig (json): json with the plot data
         """
+        # Lazy imports
+        import optuna
+        import plotly
+        import plotly.graph_objects as go
+        from optuna.importance import FanovaImportanceEvaluator
+
         distributions = {}
         for _, param, (low, high), dtype in self.parameters:
             if dtype == "integer":

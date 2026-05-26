@@ -1,9 +1,24 @@
 import { useMemo, useState } from "react";
-import { Typography, Select, MenuItem, Box } from "@mui/material";
-import { DataGrid } from "@mui/x-data-grid";
+import {
+  Typography,
+  Select,
+  MenuItem,
+  Box,
+  TextField,
+  Tooltip,
+  Chip,
+  Menu,
+} from "@mui/material";
+import {
+  MaterialReactTable,
+  useMaterialReactTable,
+} from "material-react-table";
 import { TypeChangeValidator } from "./TypeChangeValidator";
+import InferenceReasonPopover from "../dataset/InferenceReasonPopover";
+import { useTranslation } from "react-i18next";
+import { useTableLocalization } from "../../../utils/useTableLocalization";
+import { useSnackbar } from "notistack";
 
-// Mapeo de tipos a dtypes por defecto
 const TYPE_TO_DEFAULT_DTYPE = {
   Integer: "int64",
   Float: "float64",
@@ -18,15 +33,19 @@ const TYPE_TO_DEFAULT_DTYPE = {
   // Boolean: "bool",  // Boolean is always Categorical
 };
 
+const ENCODER_OPTIONS = ["one_hot", "label"];
+
 /**
  * Table component to display dataset preview with inferred types in column headers.
  *
  * @param {Array} rows - Array of row objects to display
  * @param {Object} columnTypes - Object mapping column names to their inferred types
- *                                (e.g., { columnName: { type: "Categorical", dtype: "string" } })
+ *                                (e.g., { columnName: { type: "Categorical", dtype: "string", encoder: "one_hot" } })
  * @param {File} file - The uploaded file (needed for validation)
  * @param {Object} params - Dataloader parameters (needed for validation)
  * @param {Function} onTypeChange - Callback when types are successfully changed
+ * @param {Function} onColumnRename - Callback when a column is renamed (oldName, newName) => void
+ * @param {Function} onEncoderChange - Callback when encoder changes (columnName, encoder) => void
  */
 export default function PreviewDatasetTable({
   rows,
@@ -34,36 +53,70 @@ export default function PreviewDatasetTable({
   file,
   params,
   onTypeChange,
+  onColumnRename,
+  onEncoderChange,
 }) {
+  const { t } = useTranslation(["common"]);
+  const localization = useTableLocalization();
+  const { enqueueSnackbar } = useSnackbar();
   const [showValidator, setShowValidator] = useState(false);
   const [pendingChanges, setPendingChanges] = useState({});
+  const [editingColumn, setEditingColumn] = useState(null);
+  const [editValue, setEditValue] = useState("");
+  const [columnNames, setColumnNames] = useState({});
+  const [encoderAnchor, setEncoderAnchor] = useState(null);
+  const [encoderAnchorColumn, setEncoderAnchorColumn] = useState(null);
 
-  // Handler cuando el usuario selecciona un nuevo tipo en el dropdown
+  const encoderLabel = (enc) => {
+    if (enc === "one_hot") return t("common:encoderOneHot");
+    if (enc === "label") return t("common:encoderLabel");
+    return enc;
+  };
+
+  const handleEncoderClick = (e, columnName) => {
+    e.stopPropagation();
+    setEncoderAnchor(e.currentTarget);
+    setEncoderAnchorColumn(columnName);
+  };
+
+  const handleEncoderClose = () => {
+    setEncoderAnchor(null);
+    setEncoderAnchorColumn(null);
+  };
+
+  const handleEncoderSelect = (newEncoder) => {
+    if (encoderAnchorColumn && onEncoderChange) {
+      onEncoderChange(encoderAnchorColumn, newEncoder);
+    }
+    handleEncoderClose();
+  };
+
   const handleTypeChangeRequest = (columnName, newType) => {
     const currentType = columnTypes[columnName]?.type;
 
-    // Si no cambió el tipo, no hacer nada
     if (currentType === newType) {
       return;
     }
 
-    // Obtener el dtype correcto para el nuevo tipo
-    const newDtype = TYPE_TO_DEFAULT_DTYPE[newType] || "string";
+    const currentDtype = columnTypes[columnName]?.dtype;
+    // For Categorical, preserve the column's actual dtype so label encoding
+    // uses the correct numeric type rather than defaulting to string.
+    const newDtype =
+      newType === "Categorical" && currentDtype
+        ? currentDtype
+        : TYPE_TO_DEFAULT_DTYPE[newType] || "string";
 
-    // Preparar el cambio pendiente con el dtype correcto
     setPendingChanges({
       [columnName]: {
         current_type: currentType,
         new_type: newType,
-        new_dtype: newDtype, // Ya normalizado aquí
+        new_dtype: newDtype,
       },
     });
 
-    // Mostrar el validador
     setShowValidator(true);
   };
 
-  // Handler cuando el usuario confirma los cambios después de la validación
   const handleConfirmChanges = (changes) => {
     if (onTypeChange) {
       onTypeChange(changes);
@@ -72,27 +125,94 @@ export default function PreviewDatasetTable({
     setPendingChanges({});
   };
 
-  // Handler cuando el usuario cancela
   const handleCancelChanges = () => {
     setShowValidator(false);
     setPendingChanges({});
   };
 
-  // Crear las columnas del DataGrid
+  const handleStartEdit = (columnName) => {
+    setEditingColumn(columnName);
+    setEditValue(columnNames[columnName] || columnName);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingColumn(null);
+    setEditValue("");
+  };
+
+  const handleConfirmEdit = (oldName) => {
+    const newName = editValue.trim();
+
+    if (!newName) {
+      enqueueSnackbar(t("common:columnNameCannotBeEmpty"), {
+        variant: "warning",
+      });
+      handleCancelEdit();
+      return;
+    }
+
+    const columnNameRegex = /^[a-zA-Z0-9_]+$/;
+    if (!columnNameRegex.test(newName)) {
+      enqueueSnackbar(t("common:columnNameInvalidCharacters"), {
+        variant: "warning",
+      });
+      handleCancelEdit();
+      return;
+    }
+
+    if (newName === oldName || newName === (columnNames[oldName] || oldName)) {
+      handleCancelEdit();
+      return;
+    }
+
+    const allColumnNames = Object.keys(columnTypes).map(
+      (col) => columnNames[col] || col,
+    );
+
+    if (allColumnNames.includes(newName)) {
+      enqueueSnackbar(t("common:columnNameAlreadyExists"), {
+        variant: "warning",
+      });
+      handleCancelEdit();
+      return;
+    }
+
+    setColumnNames((prev) => ({
+      ...prev,
+      [oldName]: newName,
+    }));
+
+    if (onColumnRename) {
+      onColumnRename(oldName, newName);
+    }
+
+    handleCancelEdit();
+  };
+
+  const handleKeyDown = (e, columnName) => {
+    if (e.key === "Enter") {
+      handleConfirmEdit(columnName);
+    } else if (e.key === "Escape") {
+      handleCancelEdit();
+    }
+  };
+
   const columns = useMemo(() => {
     if (!rows || rows.length === 0) return [];
 
     const firstRow = rows[0];
     return Object.keys(firstRow).map((field) => {
       const columnType = columnTypes[field];
+      const displayName = columnNames[field] || field;
 
       return {
-        field,
-        headerName: field,
-        minWidth: 150,
-        flex: 1,
-        // Custom header con el selector de tipo
-        renderHeader: () => (
+        accessorKey: field,
+        header: displayName,
+        minSize: 150,
+        grow: 1,
+        enableSorting: false,
+        enableColumnActions: false,
+        Header: () => (
           <Box
             sx={{
               display: "flex",
@@ -102,75 +222,134 @@ export default function PreviewDatasetTable({
               gap: 0.5,
             }}
           >
-            {/* Nombre de la columna */}
-            <Typography
-              variant="subtitle2"
-              sx={{
-                fontWeight: 600,
-                fontSize: "0.875rem",
-              }}
-            >
-              {field}
-            </Typography>
+            {editingColumn === field ? (
+              <TextField
+                autoFocus
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={(e) => handleKeyDown(e, field)}
+                onBlur={() => handleConfirmEdit(field)}
+                size="small"
+                sx={{
+                  width: "100%",
+                  "& .MuiInputBase-input": {
+                    fontSize: "0.875rem",
+                    paddingY: 0.5,
+                  },
+                }}
+              />
+            ) : (
+              <Tooltip title={t("common:renameColumn")} arrow>
+                <Typography
+                  variant="body1"
+                  onDoubleClick={() => handleStartEdit(field)}
+                  sx={{
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                    "&:hover": {
+                      color: "primary.main",
+                      textDecoration: "underline",
+                    },
+                  }}
+                >
+                  {displayName}
+                </Typography>
+              </Tooltip>
+            )}
 
-            {/* Selector de tipo */}
-            <Select
-              value={columnType?.type || "Text"}
-              onChange={(e) => handleTypeChangeRequest(field, e.target.value)}
-              size="small"
-              sx={{
-                fontSize: "0.75rem",
-                minWidth: 120,
-                "& .MuiSelect-select": {
-                  paddingY: 0.5,
-                  paddingX: 1,
-                },
-              }}
-            >
-              <MenuItem value="Integer">Integer</MenuItem>
-              <MenuItem value="Float">Float</MenuItem>
-              <MenuItem value="Text">Text</MenuItem>
-              <MenuItem value="Categorical">Categorical</MenuItem>
-              {/* <MenuItem value="Date">Date</MenuItem> */}
-              {/* <MenuItem value="Time">Time</MenuItem> */}
-              {/* <MenuItem value="Timestamp">Timestamp</MenuItem> */}
-              {/* <MenuItem value="Boolean">Boolean</MenuItem> */}
-            </Select>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              <Select
+                value={columnType?.type || "Text"}
+                onChange={(e) => handleTypeChangeRequest(field, e.target.value)}
+                size="small"
+                disabled={editingColumn === field}
+                sx={{
+                  fontSize: "0.75rem",
+                  minWidth: 120,
+                  "& .MuiSelect-select": {
+                    paddingY: 0.5,
+                    paddingX: 1,
+                  },
+                }}
+              >
+                <MenuItem value="Integer">Integer</MenuItem>
+                <MenuItem value="Float">Float</MenuItem>
+                <MenuItem value="Text">Text</MenuItem>
+                <MenuItem value="Categorical">Categorical</MenuItem>
+              </Select>
+
+              <InferenceReasonPopover
+                columnName={displayName}
+                reason={columnType?.inference_reason}
+              />
+            </Box>
+
+            {columnType?.type === "Categorical" && columnType?.encoder && (
+              <Tooltip title={t("common:changeEncoder")} arrow>
+                <span style={{ display: "inline-flex" }}>
+                  <Chip
+                    label={encoderLabel(columnType.encoder)}
+                    size="small"
+                    onClick={(e) => handleEncoderClick(e, field)}
+                    aria-label={t("common:encoder")}
+                    sx={{
+                      fontSize: "0.65rem",
+                      height: "18px",
+                      cursor: "pointer",
+                    }}
+                  />
+                </span>
+              </Tooltip>
+            )}
           </Box>
         ),
       };
     });
-  }, [rows, columnTypes]);
+  }, [
+    rows,
+    columnTypes,
+    columnNames,
+    editingColumn,
+    editValue,
+    encoderAnchorColumn,
+    t,
+  ]);
 
-  const rowsWithIds = useMemo(() => {
-    if (!rows) return [];
-    return rows.map((row, index) => ({
-      id: row.id !== undefined ? row.id : index,
-      ...row,
-    }));
-  }, [rows]);
+  const table = useMaterialReactTable({
+    columns,
+    data: rows ?? [],
+    muiTableBodyCellProps: { sx: { whiteSpace: "pre" } },
+    localization,
+    initialState: {
+      density: "compact",
+      pagination: { pageSize: 5, pageIndex: 0 },
+    },
+    muiTablePaperProps: { elevation: 0 },
+    paginationDisplayMode: "pages",
+  });
 
   return (
     <>
-      <DataGrid
-        rows={rowsWithIds}
-        columns={columns}
-        autoHeight
-        density="compact"
-        disableRowSelectionOnClick
-        initialState={{
-          pagination: { paginationModel: { pageSize: 5 } },
-        }}
-        pageSizeOptions={[5, 10, 25]}
-        columnHeaderHeight={100}
-        sx={{
-          "& .MuiDataGrid-columnHeader": {
-            backgroundColor: "rgba(0, 0, 0, 0.02)",
-          },
-        }}
-      />
+      <MaterialReactTable table={table} />
 
-      {/* Diálogo de validación */}
+      <Menu
+        anchorEl={encoderAnchor}
+        open={Boolean(encoderAnchor)}
+        onClose={handleEncoderClose}
+      >
+        {ENCODER_OPTIONS.map((enc) => (
+          <MenuItem
+            key={enc}
+            selected={enc === columnTypes[encoderAnchorColumn]?.encoder}
+            onClick={() => handleEncoderSelect(enc)}
+            sx={{ fontSize: "0.85rem" }}
+          >
+            {encoderLabel(enc)}
+          </MenuItem>
+        ))}
+      </Menu>
+
       <TypeChangeValidator
         open={showValidator}
         onClose={handleCancelChanges}

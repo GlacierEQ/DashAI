@@ -1,11 +1,33 @@
 import React from "react";
-import { TextField, FormControlLabel, Switch, Box } from "@mui/material";
+import {
+  TextField,
+  FormControlLabel,
+  MenuItem,
+  Switch,
+  Box,
+  Divider,
+  Typography,
+} from "@mui/material";
 
 import DebouncedColorPicker from "../DebouncedColorPicker";
+import { useTranslation } from "react-i18next";
+
+const SectionLabel = ({ children }) => (
+  <Typography
+    variant="overline"
+    color="text.secondary"
+    sx={{ lineHeight: 1.5, display: "block" }}
+  >
+    {children}
+  </Typography>
+);
 
 export default function LegendForm({ layout, handleChange }) {
+  const { t } = useTranslation(["datasets", "common"]);
+
   return (
-    <>
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {/* Visibility & Orientation */}
       <FormControlLabel
         control={
           <Switch
@@ -14,13 +36,14 @@ export default function LegendForm({ layout, handleChange }) {
             color="primary"
           />
         }
-        label="Show Legend"
+        label={t("datasets:label.showLegend")}
       />
 
       <TextField
         select
-        label="Legend Position"
-        variant="filled"
+        label={t("datasets:label.legendPosition")}
+        variant="outlined"
+        size="small"
         value={layout.legend?.orientation || "v"}
         onChange={(e) =>
           handleChange("legend", {
@@ -28,19 +51,23 @@ export default function LegendForm({ layout, handleChange }) {
             orientation: e.target.value,
           })
         }
-        slotProps={{ select: { native: true } }}
         fullWidth
       >
-        <option value="v">Vertical</option>
-        <option value="h">Horizontal</option>
+        <MenuItem value="v">{t("common:vertical")}</MenuItem>
+        <MenuItem value="h">{t("common:horizontal")}</MenuItem>
       </TextField>
+
+      <Divider />
+
+      {/* Position */}
+      <SectionLabel>{t("datasets:label.position")}</SectionLabel>
 
       <Box sx={{ display: "flex", gap: 2 }}>
         <TextField
-          label="Legend X Position"
-          variant="filled"
+          label={t("datasets:label.legendXPosition")}
+          variant="outlined"
+          size="small"
           type="number"
-          step="0.1"
           value={layout.legend?.x ?? 1}
           onChange={(e) =>
             handleChange("legend", {
@@ -49,12 +76,17 @@ export default function LegendForm({ layout, handleChange }) {
             })
           }
           fullWidth
+          slotProps={{ htmlInput: { step: 0.1, min: -2, max: 3 } }}
+          helperText={t(
+            "datasets:label.legendPositionHelper",
+            "0 = left, 1 = right",
+          )}
         />
         <TextField
-          label="Legend Y Position"
-          variant="filled"
+          label={t("datasets:label.legendYPosition")}
+          variant="outlined"
+          size="small"
           type="number"
-          step="0.1"
           value={layout.legend?.y ?? 1}
           onChange={(e) =>
             handleChange("legend", {
@@ -63,11 +95,21 @@ export default function LegendForm({ layout, handleChange }) {
             })
           }
           fullWidth
+          slotProps={{ htmlInput: { step: 0.1, min: -2, max: 3 } }}
+          helperText={t(
+            "datasets:label.legendPositionHelper2",
+            "0 = bottom, 1 = top",
+          )}
         />
       </Box>
 
+      <Divider />
+
+      {/* Appearance */}
+      <SectionLabel>{t("datasets:label.appearance")}</SectionLabel>
+
       <DebouncedColorPicker
-        label="Legend Background Color"
+        label={t("datasets:label.legendBackgroundColor")}
         value={layout.legend?.bgcolor || "#FFFFFF"}
         onChange={(color) =>
           handleChange("legend", { ...layout.legend, bgcolor: color })
@@ -75,7 +117,7 @@ export default function LegendForm({ layout, handleChange }) {
       />
 
       <DebouncedColorPicker
-        label="Legend Border Color"
+        label={t("datasets:label.legendBorderColor")}
         value={layout.legend?.bordercolor || "#000000"}
         onChange={(color) =>
           handleChange("legend", { ...layout.legend, bordercolor: color })
@@ -83,18 +125,20 @@ export default function LegendForm({ layout, handleChange }) {
       />
 
       <TextField
-        label="Legend Border Width"
-        variant="filled"
+        label={t("datasets:label.legendBorderWidth")}
+        variant="outlined"
+        size="small"
         type="number"
-        value={layout.legend?.borderwidth || 0}
+        value={layout.legend?.borderwidth ?? 0}
         onChange={(e) =>
           handleChange("legend", {
             ...layout.legend,
-            borderwidth: parseInt(e.target.value),
+            borderwidth: parseInt(e.target.value, 10) || 0,
           })
         }
         fullWidth
+        slotProps={{ htmlInput: { min: 0, max: 10 } }}
       />
-    </>
+    </Box>
   );
 }

@@ -1,39 +1,63 @@
 import { Box, Typography, Divider } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
+import { useNavigate } from "react-router-dom";
 import FolderIcon from "@mui/icons-material/Folder";
-import SearchBar from "./SearchBar";
+import SearchBar from "../threeSectionLayout/SearchBar";
 import { useEffect, useState } from "react";
 import InfoSessionModal from "./InfoSessionModal";
-import Footer from "./Footer";
-import SessionList from "./SessionList";
-import SessionBarHeader from "./SessionBarHeader";
+import GroupedCollapsibleList from "../threeSectionLayout/GroupedCollapsibleList";
+import Footer from "../threeSectionLayout/Footer";
 import NewItemButton from "../threeSectionLayout/NewItemButton";
-import SideBar from "../threeSectionLayout/SideBar";
-import BarHeader from "../threeSectionLayout/BarHeader";
+import SideBar from "../threeSectionLayout/panelContainers/SideBar";
+import { useTranslation } from "react-i18next";
+import { useGenerative } from "./GenerativeContext";
 
-export default function SessionBar({
-  sessions,
-  selectedSessionId,
-  handleSessionClick,
-  handleNewSessionButton,
-  handleSessionDelete,
-  stepIndex,
-}) {
+export default function SessionBar({ onToggle }) {
+  const theme = useTheme();
+  const navigate = useNavigate();
+  const { tasks, sessions, selectedSessionId, deleteSessionById, editSession } =
+    useGenerative();
   const [searchQuery, setSearchQuery] = useState("");
   const [filteredSessions, setFilteredSessions] = useState(sessions);
   const [selectedInfoSession, setSelectedInfoSession] = useState(null);
   const [openSections, setOpenSections] = useState({});
+  const { t } = useTranslation(["generative", "common"]);
+
+  const SEARCH_THRESHOLD = 10;
 
   useEffect(() => {
-    // Initialize all sections as closed
-    const taskNames = [
-      ...new Set(sessions.map((session) => session.task_name || "Other")),
+    if (sessions.length <= SEARCH_THRESHOLD) setSearchQuery("");
+  }, [sessions.length]);
+
+  // Create a map of task_name to display_name for quick lookup
+  const taskDisplayNameMap =
+    tasks?.reduce((map, task) => {
+      map[task.name] = task.display_name;
+      return map;
+    }, {}) || {};
+
+  useEffect(() => {
+    // Initialize all sections as closed based on unique task display names
+    const uniqueDisplayNames = [
+      ...new Set(
+        sessions.map(
+          (session) =>
+            taskDisplayNameMap[session.task_name] || t("common:other"),
+        ),
+      ),
     ];
     const initialOpenState = {};
-    taskNames.forEach((task) => {
-      initialOpenState[task] = false;
+    uniqueDisplayNames.forEach((displayName) => {
+      initialOpenState[displayName] = false;
     });
-    setOpenSections(initialOpenState);
-  }, []);
+    setOpenSections((prev) => {
+      // Only update if display names have changed
+      const prevKeys = Object.keys(prev).sort().join(",");
+      const newKeys = Object.keys(initialOpenState).sort().join(",");
+      if (prevKeys === newKeys) return prev;
+      return initialOpenState;
+    });
+  }, [sessions, tasks]);
 
   useEffect(() => {
     if (searchQuery.trim() === "") {
@@ -58,22 +82,51 @@ export default function SessionBar({
     }
   };
 
-  const toggleSection = (taskName) => {
-    setOpenSections((prev) => ({
-      ...prev,
-      [taskName]: !prev[taskName],
-    }));
+  const handleNewSessionButton = () => {
+    navigate("/app/generative");
   };
 
-  // Group sessions by display_name
+  const handleSessionClick = (sessionId) => {
+    navigate(`/app/generative/sessions/${sessionId}`);
+  };
+
+  const handleSessionDelete = async (id) => {
+    const wasSelected = id === selectedSessionId;
+    const ok = await deleteSessionById(id);
+    if (ok && wasSelected) {
+      navigate("/app/generative");
+    }
+  };
+
+  const getSessionDeleteConfirmationContent = (session) =>
+    t(
+      "generative:label.confirmDeleteSession",
+      'Are you sure you want to delete the session "{{name}}"? This action cannot be undone.',
+      { name: session.name },
+    );
+
+  // Group sessions by task display_name
   const groupedSessions = filteredSessions?.reduce((groups, session) => {
-    const displayName = session.display_name || "Other";
+    // Get the display name from the task using the session's task_name
+    const displayName =
+      taskDisplayNameMap[session.task_name] || t("common:other");
+
     if (!groups[displayName]) {
       groups[displayName] = [];
     }
     groups[displayName].push(session);
     return groups;
   }, {});
+
+  // Sort grouped sessions to maintain consistent order
+  const sortedGroupedSessions = groupedSessions
+    ? Object.keys(groupedSessions)
+        .sort()
+        .reduce((sorted, key) => {
+          sorted[key] = groupedSessions[key];
+          return sorted;
+        }, {})
+    : {};
 
   return (
     <SideBar>
@@ -84,19 +137,6 @@ export default function SessionBar({
         justifyContent={"flex-start"}
         minHeight={0}
       >
-        {/* Header */}
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            pr: 2,
-          }}
-        >
-          <BarHeader />
-        </Box>
-        <Divider sx={{ width: "100%", bgcolor: "#252836" }} />
-
         <Box
           p={2}
           sx={{ height: "64px", display: "flex", alignItems: "center" }}
@@ -105,72 +145,42 @@ export default function SessionBar({
           {selectedSessionId ? (
             <NewItemButton
               onClick={handleNewSessionButton}
-              title="New Session"
+              title={t("generative:button.createSession")}
             />
           ) : (
             <Typography variant="body1" color="textSecondary">
-              Generative Module
+              {t("generative:label.generativeModule")}
             </Typography>
           )}
         </Box>
 
         {/* Search Bar */}
-        <Box px={2} pb={2} flex={"0 0 auto"}>
-          <SearchBar
-            placeholder={"Search Sessions"}
-            value={searchQuery}
-            onChange={handleSearchChange}
-          />
-        </Box>
-
-        <Divider sx={{ width: "90%", bgcolor: "#252836", mx: "auto" }} />
-
-        {/* Sessions */}
-        <Box
-          minHeight={0}
-          pb={1}
-          overflow="auto"
-          sx={{
-            flex: 1,
-            pl: 2,
-            pr: 2,
-            pt: 2,
-          }}
-        >
-          {/* Header */}
-          <Box display="flex" alignItems="center" py={0.5} px={1} mb={0.5}>
-            <FolderIcon sx={{ color: "#16FFFF", mr: 1, fontSize: 20 }} />
-            <Typography>Sessions</Typography>
-            <Box
-              sx={{
-                ml: 1,
-                bgcolor: "#374151",
-                color: "white",
-                borderRadius: "50%",
-                width: 20,
-                height: 20,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 12,
-              }}
-            >
-              {filteredSessions?.length}
-            </Box>
-          </Box>
-          {/* Sessions Display Grouped by Task */}
-          <Box>
-            <SessionList
-              selectedSessionId={selectedSessionId}
-              groupedSessions={groupedSessions}
-              openSections={openSections}
-              handleSessionClick={handleSessionClick}
-              handleSessionDelete={handleSessionDelete}
-              handleSessionInfo={handleSessionInfo}
-              toggleSection={toggleSection}
+        {sessions.length > SEARCH_THRESHOLD && (
+          <Box px={2} pb={2} flex={"0 0 auto"}>
+            <SearchBar
+              placeholder={t("generative:label.searchSessions")}
+              value={searchQuery}
+              onChange={handleSearchChange}
             />
           </Box>
-        </Box>
+        )}
+
+        <Divider sx={{ width: "90%", bgcolor: "divider", mx: "auto" }} />
+
+        {/* Sessions */}
+        <GroupedCollapsibleList
+          groups={sortedGroupedSessions}
+          selectedItemId={selectedSessionId}
+          onItemClick={handleSessionClick}
+          onItemDelete={handleSessionDelete}
+          onItemEdit={editSession}
+          onItemInfo={handleSessionInfo}
+          title={t("common:generative")}
+          Icon={FolderIcon}
+          initialOpenGroups={openSections}
+          getItemDescription={(session) => session.model_name}
+          getDeleteConfirmationContent={getSessionDeleteConfirmationContent}
+        />
       </Box>
 
       {/* Footer */}

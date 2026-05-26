@@ -1,36 +1,63 @@
 from abc import abstractmethod
-from typing import Any, Dict, Final, List, Union
+from typing import TYPE_CHECKING, Any, Dict, Final, List, Union
 
-import numpy as np
-import pandas as pd
-from datasets import DatasetDict
 from starlette.datastructures import UploadFile
 
-from DashAI.back.dataloaders.classes.dashai_dataset import (
-    DashAIDataset,
-    get_columns_spec,
-    to_dashai_dataset,
-)
 from DashAI.back.tasks.utils import get_bytes_with_type_filetype
+
+if TYPE_CHECKING:
+    from datasets import DatasetDict
+
+    from DashAI.back.dataloaders.classes.dashai_dataset import DashAIDataset
 
 
 class BaseTask:
     """Base class for DashAI compatible tasks."""
 
     TYPE: Final[str] = "Task"
+    SCORING_PROFILES: Dict[str, Dict[str, Any]] = {}
 
     @property
     @abstractmethod
     def schema(self) -> Dict[str, Any]:
+        """Return the schema of components compatible with this task.
+
+        Concrete subclasses must implement this property to return a mapping
+        that describes which models, metrics, and other components are compatible
+        with the task.
+
+        Returns
+        -------
+        Dict[str, Any]
+            A dictionary whose keys are component category names (e.g.
+            ``"models"``, ``"metrics"``) and whose values are lists or
+            mappings of the compatible component classes or identifiers.
+
+        Raises
+        ------
+        NotImplementedError
+            If the subclass does not provide an implementation.
+        """
         raise NotImplementedError
 
     @classmethod
     def get_metadata(cls) -> Dict[str, Any]:
-        """Get metadata values for the current task
+        """Return serialisable metadata for the current task.
 
-        Returns:
-            Dict[str, Any]: Dictionary with the metadata containing the input and output
-             types/cardinality.
+        Converts the ``inputs_types`` and ``outputs_types`` entries from class
+        objects to their string names so the result can be JSON-serialised by
+        the DashAI frontend.
+
+        Parameters
+        ----------
+        cls : type
+            The task class (injected automatically by Python for classmethods).
+
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary with keys ``"inputs_types"``, ``"outputs_types"``,
+            ``"inputs_cardinality"``, and ``"outputs_cardinality"``.
         """
         metadata = cls.metadata
 
@@ -50,7 +77,7 @@ class BaseTask:
 
     def validate_dataset_for_task(
         self,
-        dataset: DashAIDataset,
+        dataset: "DashAIDataset",
         dataset_name: str,
         input_columns: List[str],
         output_columns: List[str],
@@ -105,17 +132,41 @@ class BaseTask:
 
     def prepare_for_task(
         self,
-        dataset: Union[DatasetDict, DashAIDataset],
+        dataset: Union["DatasetDict", "DashAIDataset"],
         input_columns: List[str],
         output_columns: List[str],
-    ) -> DashAIDataset:
-        """
-        Default preparation shared by every task.
+    ) -> "DashAIDataset":
+        """Prepare and validate a dataset for this task.
 
-        - Ensures DashAIDataset instance.
-        - Validates types against task metadata.
-        - Returns dataset ready for the taks.
+        Ensures the dataset is a ``DashAIDataset`` instance, then validates
+        that the selected input and output columns match the types and
+        cardinality declared in :attr:`metadata`.
+
+        Parameters
+        ----------
+        dataset : DatasetDict or DashAIDataset
+            The dataset to prepare. If a ``DatasetDict`` is supplied it is
+            converted to ``DashAIDataset`` automatically.
+        input_columns : list of str
+            Names of columns to use as model inputs.
+        output_columns : list of str
+            Names of columns to use as model outputs/targets.
+
+        Returns
+        -------
+        DashAIDataset
+            The validated dataset, ready to be passed to a model.
+
+        Raises
+        ------
+        TypeError
+            If any input or output column has a type not allowed by this task.
+        ValueError
+            If the number of input or output columns violates the task's
+            cardinality constraints.
         """
+        from DashAI.back.dataloaders.classes.dashai_dataset import to_dashai_dataset
+
         dashai_dataset = to_dashai_dataset(dataset)
         self.validate_dataset_for_task(
             dashai_dataset,
@@ -126,7 +177,7 @@ class BaseTask:
         return dashai_dataset
 
     @abstractmethod
-    def num_labels(self, dataset: DashAIDataset, output_column: str) -> int | None:
+    def num_labels(self, dataset: "DashAIDataset", output_column: str) -> int | None:
         """Get the number of unique labels in the output column.
 
         Parameters
@@ -175,6 +226,8 @@ class BaseTask:
         TypeError
             If value doesn't match expected type
         """
+        import numpy as np
+
         col_type = column_spec.get("type")
         dtype = column_spec.get("dtype")
 
@@ -283,7 +336,7 @@ class BaseTask:
 
     def process_manual_input(
         self, manual_input: List[dict], dataset_path: str
-    ) -> DashAIDataset:
+    ) -> "DashAIDataset":
         """Process manual input data into a DashAIDataset with type validation.
 
         Parameters
@@ -305,7 +358,11 @@ class BaseTask:
         TypeError
             If input types don't match expected types
         """
+        from pandas import DataFrame
+
         from DashAI.back.dataloaders.classes.dashai_dataset import (
+            get_columns_spec,
+            to_dashai_dataset,
             transform_dataset_with_schema,
         )
 
@@ -351,7 +408,7 @@ class BaseTask:
             mapped_inputs.append(row)
 
         # Convert to DataFrame first
-        mapped_inputs_df = pd.DataFrame(mapped_inputs)
+        mapped_inputs_df = DataFrame(mapped_inputs)
 
         # Convert to DashAIDataset and apply schema transformation
         # This ensures categorical encoding is applied

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getComponents } from "../api/component";
 import { formattedModel, generateYupSchema } from "../utils/schema";
+import { useTranslation } from "react-i18next";
 
 /**
  * This hook is used to get the schema of a model, it will return the schema and the initial values of the model
@@ -10,8 +11,11 @@ import { formattedModel, generateYupSchema } from "../utils/schema";
 export default function useSchema({ modelName = null } = {}) {
   const [model, setModel] = useState(null);
   const [loading, setLoading] = useState(false);
+  const { t } = useTranslation();
 
   useEffect(() => {
+    setModel(null);
+
     const getModel = async () => {
       try {
         setLoading(true);
@@ -31,7 +35,7 @@ export default function useSchema({ modelName = null } = {}) {
     if (modelName) {
       getModel();
     }
-  }, [modelName]);
+  }, [modelName, t]);
 
   const { schema, initialValues } = model
     ? generateYupSchema(model)

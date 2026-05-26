@@ -1,4 +1,3 @@
-import pyarrow as pa
 from sklearn.impute import SimpleImputer as SimpleImputerOperation
 
 from DashAI.back.converters.category.basic_preprocessing import (
@@ -16,59 +15,152 @@ from DashAI.back.core.schema_fields import (
     union_type,
 )
 from DashAI.back.core.schema_fields.base_schema import BaseSchema
+from DashAI.back.core.utils import MultilingualString
+from DashAI.back.types.categorical import Categorical
 from DashAI.back.types.dashai_data_type import DashAIDataType
-from DashAI.back.types.value_types import Float
+from DashAI.back.types.value_types import Float, Integer
 
 
 class SimpleImputerSchema(BaseSchema):
+    """Schema for configuring the SimpleImputer converter.
+
+    Wraps ``sklearn.impute.SimpleImputer`` and exposes strategy selection,
+    fill value, copy behaviour, indicator stacking, and empty-feature
+    handling as schema fields validated before being forwarded to the
+    underlying scikit-learn estimator.
+    """
+
     strategy: schema_field(
-        enum_field(["mean", "median", "most_frequent", "constant"]),
+        enum_field(
+            [
+                "mean",
+                "median",
+                ["most_frequent", "constant"][0],
+                "most_frequent",
+                "constant",
+            ]
+        ),
         "mean",
-        "The imputation strategy.",
+        description=MultilingualString(
+            en="The imputation strategy.",
+            es="La estrategia de imputación.",
+            pt="A estratégia de imputação.",
+        ),
     )  # type: ignore
     fill_value: schema_field(
         none_type(union_type(int_field(), union_type(float_field(), string_field()))),
         None,
-        "The value to replace missing values with.",
-    )  # type: ignore
-    use_copy: schema_field(
-        bool_field(),
-        True,
-        "If True, a copy of X will be created.",
-        alias="copy",
+        description=MultilingualString(
+            en="The value to replace missing values with.",
+            es="El valor para reemplazar los valores faltantes.",
+            pt="O valor para substituir os valores ausentes.",
+        ),
     )  # type: ignore
     add_indicator: schema_field(
         bool_field(),
         False,
-        "If True, a MissingIndicator transform will stack onto output.",
+        description=MultilingualString(
+            en="If True, a MissingIndicator transform will stack onto output.",
+            es=("Si es True, se apilará un MissingIndicator sobre la salida."),
+            pt=("Se True, uma transformação MissingIndicator será empilhada na saída."),
+        ),
     )  # type: ignore
     keep_empty_features: schema_field(
         bool_field(),
         False,
-        "If True, empty features will be kept.",
+        description=MultilingualString(
+            en="If True, empty features will be kept.",
+            es="Si es True, se mantendrán las características vacías.",
+            pt="Se True, características vazias serão mantidas.",
+        ),
     )  # type: ignore
 
 
 class SimpleImputer(
     BasicPreprocessingConverter, SklearnWrapper, SimpleImputerOperation
 ):
-    """SciKit-Learn's SimpleImputer wrapper for DashAI."""
+    """Fill missing values using a simple univariate per-column strategy.
+
+    Each feature is imputed independently using one of four strategies:
+
+    * ``"mean"`` — replace missing values with the column mean (numeric only).
+    * ``"median"`` — replace with the column median (numeric only).
+    * ``"most_frequent"`` — replace with the most common value (works with
+      strings and numeric data).
+    * ``"constant"`` — replace with a fixed ``fill_value`` supplied by the
+      user.
+
+    Columns with all-missing values are handled according to the
+    ``keep_empty_features`` flag. When ``add_indicator=True``, a
+    ``MissingIndicator`` binary matrix is stacked onto the output. All
+    output columns are typed as ``Float64`` in DashAI regardless of the
+    original column type.
+
+    Wraps ``sklearn.impute.SimpleImputer``.
+
+    References
+    ----------
+    - [1] https://scikit-learn.org/stable/modules/generated/sklearn.impute.SimpleImputer.html
+    """
 
     SCHEMA = SimpleImputerSchema
-    DESCRIPTION = (
-        "Univariate imputer for completing missing "
-        "values with simple strategies. "
-        "Replace missing values using a descriptive statistic "
-        "(e.g. mean, median, or most frequent) "
-        "along each column, or using a constant value."
+    DESCRIPTION = MultilingualString(
+        en=(
+            "Univariate imputer for completing missing values with simple "
+            "strategies. Replace missing values using a descriptive statistic "
+            "(e.g. mean, median, or most frequent) along each column, or using "
+            "a constant value."
+        ),
+        es=(
+            "Imputador univariante para completar valores faltantes con "
+            "estrategias simples. Reemplaza valores faltantes usando una "
+            "estadística descriptiva (p. ej., media, mediana o más frecuente) "
+            "por columna, o usando un valor constante."
+        ),
+        pt=(
+            "Imputador univariado para completar valores ausentes com "
+            "estratégias simples. Substitui valores ausentes usando uma "
+            "estatística descritiva (p. ex., média, mediana ou moda) "
+            "por coluna, ou usando um valor constante."
+        ),
     )
-    CATEGORY = "Basic Preprocessing"
-    DISPLAY_NAME = "Simple Imputer"
+    DISPLAY_NAME = MultilingualString(
+        en="Simple Imputer",
+        es="Imputador Simple",
+        pt="Imputador Simples",
+    )
     IMAGE_PREVIEW = "simple_imputer.png"
 
+    metadata = {
+        "allowed_types": [Float, Integer, Categorical],
+        "allowed_dtypes": [],
+    }
+
     def __init__(self, **kwargs):
+        """Initialize the SimpleImputer converter.
+
+        Parameters
+        ----------
+        **kwargs
+            Configuration keyword arguments matching the converter's
+            schema fields. Forwarded to the underlying scikit-learn class.
+        """
         super().__init__(**kwargs)
 
     def get_output_type(self, column_name: str = None) -> DashAIDataType:
-        """Returns Float64 as the output type for imputed data."""
+        """Return the DashAI data type produced by this converter for a column.
+
+        Parameters
+        ----------
+        column_name : str, optional
+            Not used; all output columns share the
+            same type. Defaults to None.
+
+        Returns
+        -------
+        DashAIDataType
+            A Float type backed by ``pyarrow.float64()``.
+        """
+        import pyarrow as pa
+
         return Float(arrow_type=pa.float64())

@@ -7,6 +7,7 @@ import ScopeStepExplorer from "./ScopeStepExplorer";
 import { createNotebookExplorer } from "../../../api/explorer";
 import { enqueueExplorerJob } from "../../../api/job";
 import { startJobPolling } from "../../../utils/jobPoller";
+import { useTranslation } from "react-i18next";
 
 export default function FormExplorerSection({
   step,
@@ -14,6 +15,7 @@ export default function FormExplorerSection({
   handleClose,
   tool,
   notebook,
+  hideButtons = false,
 }) {
   const [classColumnInitialValue, setClassColumnInitialValue] = useState(null);
   const [scopeColumns, setScopeColumns] = useState([]);
@@ -34,6 +36,7 @@ export default function FormExplorerSection({
   const { explorersAndConverters, setExplorersAndConverters } =
     useExplorersAndConverters();
   const { enqueueSnackbar } = useSnackbar();
+  const { t } = useTranslation(["datasets", "common"]);
 
   const handleSaveExplorer = async (params) => {
     try {
@@ -54,7 +57,6 @@ export default function FormExplorerSection({
       setExplorersAndConverters((prev) => [...prev, data]);
 
       const response = await enqueueExplorerJob(created.id);
-      console.log("Enqueued job with ID:", response.id);
 
       if (response && response.id) {
         const jobId = response.id;
@@ -62,24 +64,31 @@ export default function FormExplorerSection({
         startJobPolling(
           jobId,
           (result) => {
-            enqueueSnackbar(`Explorer ${tool.name} processed successfully`, {
-              variant: "success",
-            });
+            enqueueSnackbar(
+              t("datasets:message.explorerProcessedSuccessfully", {
+                name: tool.name,
+              }),
+              {
+                variant: "success",
+              },
+            );
           },
           (result) => {
             enqueueSnackbar(
-              `Error processing explorer: ${result.error || "Unknown error"}`,
+              t("datasets:error.errorProcessingExplorer", {
+                error: result.error || t("common:unknownError"),
+              }),
               { variant: "error" },
             );
           },
         );
       }
       handleClose();
-
-      console.log("Enqueued explorer job:", response);
     } catch (error) {
       console.error("Error creating explorer:", error);
-      enqueueSnackbar("Failed to create explorer", { variant: "error" });
+      enqueueSnackbar(t("datasets:error.failedToCreateExplorer"), {
+        variant: "error",
+      });
     }
   };
 
@@ -96,8 +105,9 @@ export default function FormExplorerSection({
         overflow: "visible",
         display: "flex",
         flexDirection: "column",
-        flexGrow: 1,
+        flex: 1,
         maxHeight: "100%",
+        minHeight: 0,
       }}
     >
       {step === 0 && (
@@ -112,6 +122,7 @@ export default function FormExplorerSection({
               ? () => setStep((s) => s + 1)
               : () => handleSaveExplorer({})
           }
+          hideButtons={hideButtons}
         />
       )}
 
@@ -121,6 +132,7 @@ export default function FormExplorerSection({
           initialParams={{}}
           handleSaveExplorer={handleSaveExplorer}
           setStep={setStep}
+          hideButtons={hideButtons}
         />
       )}
     </Box>

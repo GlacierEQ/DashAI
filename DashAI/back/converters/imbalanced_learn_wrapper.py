@@ -1,46 +1,97 @@
 from abc import ABCMeta
-from typing import Type, Union
-
-import numpy as np
-import pandas as pd
-import pyarrow as pa
+from typing import TYPE_CHECKING, Type, Union
 
 from DashAI.back.converters.base_converter import BaseConverter
-from DashAI.back.dataloaders.classes.dashai_dataset import DashAIDataset
 from DashAI.back.job.base_job import JobError
 from DashAI.back.types.dashai_data_type import DashAIDataType
+from DashAI.back.types.utils import save_types_in_arrow_metadata
+
+if TYPE_CHECKING:
+    from DashAI.back.dataloaders.classes.dashai_dataset import DashAIDataset
 
 
 class ImbalancedLearnWrapper(BaseConverter, metaclass=ABCMeta):
-    """Generic wrapper for imbalanced-learn samplers (e.g., SMOTE, ADASYN)."""
+    """Abstract wrapper that adapts imbalanced-learn samplers
+    to the DashAI converter API.
+
+    Implements ``fit`` and ``transform`` by calling ``fit_resample`` from the underlying
+    imbalanced-learn sampler, then wrapping the resampled data back into a
+    ``DashAIDataset``. Because samplers change the number of rows, ``changes_row_count``
+    returns ``True`` for all subclasses.
+
+    All concrete imbalanced-learn converters in DashAI inherit from this class.
+    """
+
+    SUPERVISED = True
+    CHANGES_ROW_COUNT = True
 
     def __init__(self, **kwargs):
+        """Initialise the imbalanced-learn wrapper and reset internal state.
+
+        Parameters
+        ----------
+        **kwargs : dict
+            Keyword arguments forwarded to :class:`BaseConverter`.
+        """
         super().__init__(**kwargs)
         self.fitted = False
-        self._resampled_table: Union[pa.Table, None] = None
+        self._resampled_table = None
         self.original_X_column_names_: list = []
         self.original_target_column_name_: str = ""
 
-    def changes_row_count(self) -> bool:
-        return True
-
     def get_output_type(self, column_name: str = None) -> DashAIDataType:
-        """
-        ImbalancedLearn samplers preserve the data types of the input columns.
-        This method should ideally return the original type for each column,
-        but since samplers don't change types, we raise NotImplementedError
-        and rely on the transform method to preserve types from the input.
+        """Not implemented; type preservation is handled in ``transform``.
+
+        Imbalanced-learn samplers do not change column types — types from the
+        input dataset are copied directly in ``transform``.
+
+        Parameters
+        ----------
+        column_name : str or None, optional
+            Name of the column whose output type is queried. Ignored because
+            this method always raises. Default ``None``.
+
+        Raises
+        ------
+        NotImplementedError
+            Always, because type determination is delegated to ``transform``.
         """
         raise NotImplementedError(
             "ImbalancedLearn samplers preserve input types. "
             "Types are handled in the transform method."
         )
 
-    def fit(self, x: DashAIDataset, y: DashAIDataset) -> Type[BaseConverter]:
+    def fit(self, x: "DashAIDataset", y: "DashAIDataset") -> Type[BaseConverter]:
+        """Resample the dataset by calling ``fit_resample`` and store the result.
+
+        Converts ``x`` and ``y`` to pandas, calls the imbalanced-learn sampler's
+        ``fit_resample``, then stores the combined resampled data as a PyArrow table.
+
+        Parameters
+        ----------
+        x : DashAIDataset
+            The input feature dataset.
+        y : DashAIDataset
+            The target label dataset (required; must be non-empty).
+
+        Returns
+        -------
+        Type[BaseConverter]
+            The fitted sampler instance (self).
+
+        Raises
+        ------
+        ValueError
+            If ``y`` is ``None`` or empty.
+        TypeError
+            If the resampled arrays from imbalanced-learn have an unexpected type.
+        JobError
+            If constructing the resampled PyArrow table fails.
         """
-        Fit the sampler using imbalanced-learn's fit_resample and store the combined
-        result.
-        """
+        import numpy as np
+        import pandas as pd
+        import pyarrow as pa
+
         if y is None or len(y) == 0:
             raise ValueError(
                 "Imbalanced-learn samplers require a non-empty target dataset (y)."
@@ -96,6 +147,16 @@ class ImbalancedLearnWrapper(BaseConverter, metaclass=ABCMeta):
             self._resampled_table = pa.Table.from_pandas(
                 combined_df, preserve_index=False
             )
+            combined_types = x.types.copy()
+            combined_types.update(y.types)
+            types_serialized = {
+                col: combined_types[col].to_string() for col in combined_types
+            }
+
+            self._resampled_table = save_types_in_arrow_metadata(
+                self._resampled_table, types_serialized
+            )
+
         except Exception as e:
             raise JobError(
                 f"Failed to prepare resampled data as PyArrow Table: {e}"
@@ -105,9 +166,32 @@ class ImbalancedLearnWrapper(BaseConverter, metaclass=ABCMeta):
         return self
 
     def transform(
-        self, x: DashAIDataset, y: Union[DashAIDataset, None] = None
-    ) -> DashAIDataset:
-        """Return the stored resampled dataset (X and y combined)."""
+        self, x: "DashAIDataset", y: Union["DashAIDataset", None] = None
+    ) -> "DashAIDataset":
+        """Return the resampled dataset stored during ``fit``.
+
+        Parameters
+        ----------
+        x : DashAIDataset
+            The original feature dataset (used only for type information).
+        y : DashAIDataset, optional
+            The original target dataset (used only for type information).
+            Defaults to None.
+
+        Returns
+        -------
+        DashAIDataset
+            The combined resampled dataset (features + target) produced by ``fit``.
+
+        Raises
+        ------
+        RuntimeError
+            If ``fit`` has not been called or the resampled table is unavailable.
+        JobError
+            If constructing the output ``DashAIDataset`` fails.
+        """
+        from DashAI.back.dataloaders.classes.dashai_dataset import DashAIDataset
+
         if not self.fitted:
             raise RuntimeError(f"{self.__class__.__name__} has not been fitted yet.")
         if self._resampled_table is None:

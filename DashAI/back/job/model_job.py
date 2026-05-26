@@ -1,29 +1,23 @@
-import gc
-import json
 import logging
-import os
-import pickle
-from typing import List
+from typing import TYPE_CHECKING, List
 
 from kink import inject
 from sqlalchemy import exc
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm.attributes import flag_modified
 
 from DashAI.back.core.enums.metrics import LevelEnum, SplitEnum
-from DashAI.back.dataloaders.classes.dashai_dataset import (
-    DashAIDataset,
-    load_dataset,
-    prepare_for_experiment,
-    select_columns,
-    split_dataset,
-)
-from DashAI.back.dependencies.database.models import Dataset, Experiment, Metric, Run
+from DashAI.back.dependencies.database.models import Dataset, Metric, ModelSession, Run
 from DashAI.back.job.base_job import BaseJob, JobError
-from DashAI.back.metrics import BaseMetric
-from DashAI.back.models import BaseModel
+from DashAI.back.metrics.base_metric import BaseMetric
+from DashAI.back.models.base_model import BaseModel
 from DashAI.back.models.model_factory import ModelFactory
-from DashAI.back.optimizers import BaseOptimizer
-from DashAI.back.tasks import BaseTask
+from DashAI.back.optimizers.base_optimizer import BaseOptimizer
+from DashAI.back.tasks.base_task import BaseTask
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import sessionmaker
+
+    from DashAI.back.dataloaders.classes.dashai_dataset import DashAIDataset
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
@@ -34,7 +28,7 @@ class ModelJob(BaseJob):
 
     @inject
     def set_status_as_delivered(
-        self, session_factory: sessionmaker = lambda di: di["session_factory"]
+        self, session_factory: "sessionmaker" = lambda di: di["session_factory"]
     ) -> None:
         """Set the status of the job as delivered."""
         run_id: int = self.kwargs["run_id"]
@@ -54,7 +48,7 @@ class ModelJob(BaseJob):
 
     @inject
     def set_status_as_error(
-        self, session_factory: sessionmaker = lambda di: di["session_factory"]
+        self, session_factory: "sessionmaker" = lambda di: di["session_factory"]
     ) -> None:
         """Set the status of the job as error."""
         run_id: int = self.kwargs.get("run_id")
@@ -96,7 +90,19 @@ class ModelJob(BaseJob):
     def run(
         self,
     ) -> None:
+        import gc
+        import json
+        import os
+        import pickle
+
         from kink import di
+
+        from DashAI.back.dataloaders.classes.dashai_dataset import (
+            load_dataset,
+            prepare_for_model_session,
+            select_columns,
+            split_dataset,
+        )
 
         component_registry = di["component_registry"]
         session_factory = di["session_factory"]
@@ -110,20 +116,20 @@ class ModelJob(BaseJob):
             run.huey_id = self.kwargs.get("huey_id", None)
             db.commit()
             try:
-                # Get the experiment, dataset, task, metrics and splits
-                experiment: Experiment = db.get(Experiment, run.experiment_id)
-                if not experiment:
+                # Get the model session, dataset, task, metrics and splits
+                model_session: ModelSession = db.get(ModelSession, run.model_session_id)
+                if not model_session:
                     raise JobError(
-                        f"Experiment {run.experiment_id} does not exist in DB."
+                        f"Model session {run.model_session_id} does not exist in DB."
                     )
-                dataset: Dataset = db.get(Dataset, experiment.dataset_id)
+                dataset: Dataset = db.get(Dataset, model_session.dataset_id)
                 if not dataset:
                     raise JobError(
-                        f"Dataset {experiment.dataset_id} does not exist in DB."
+                        f"Dataset {model_session.dataset_id} does not exist in DB."
                     )
 
                 try:
-                    loaded_dataset: DashAIDataset = load_dataset(
+                    loaded_dataset: "DashAIDataset" = load_dataset(
                         f"{dataset.file_path}/dataset"
                     )
                 except Exception as e:
@@ -133,51 +139,55 @@ class ModelJob(BaseJob):
                     ) from e
 
                 try:
-                    task: BaseTask = component_registry[experiment.task_name]["class"]()
+                    task: BaseTask = component_registry[model_session.task_name][
+                        "class"
+                    ]()
                 except Exception as e:
                     log.exception(e)
                     raise JobError(
                         (
-                            f"Unable to find Task with name {experiment.task_name} "
+                            f"Unable to find Task with name {model_session.task_name} "
                             "in registry"
                         ),
                     ) from e
 
                 try:
-                    # Get metrics from experiment
+                    # Get metrics from model session
                     train_metrics: List[BaseMetric] = [
-                        component_registry[m]["class"] for m in experiment.train_metrics
+                        component_registry[m]["class"]
+                        for m in model_session.train_metrics
                     ]
                     validation_metrics: List[BaseMetric] = [
                         component_registry[m]["class"]
-                        for m in experiment.validation_metrics
+                        for m in model_session.validation_metrics
                     ]
                     test_metrics: List[BaseMetric] = [
-                        component_registry[m]["class"] for m in experiment.test_metrics
+                        component_registry[m]["class"]
+                        for m in model_session.test_metrics
                     ]
 
                 except Exception as e:
                     log.exception(e)
                     raise JobError(
                         "Unable to find metrics associated with"
-                        f"Task {experiment.task_name} in registry",
+                        f"Task {model_session.task_name} in registry",
                     ) from e
 
                 try:
                     prepared_dataset = task.prepare_for_task(
                         dataset=loaded_dataset,
-                        input_columns=experiment.input_columns,
-                        output_columns=experiment.output_columns,
+                        input_columns=model_session.input_columns,
+                        output_columns=model_session.output_columns,
                     )
                     n_labels = task.num_labels(
-                        prepared_dataset, experiment.output_columns[0]
+                        prepared_dataset, model_session.output_columns[0]
                     )
 
-                    splits = json.loads(experiment.splits)
-                    prepared_dataset, splits = prepare_for_experiment(
+                    splits = json.loads(model_session.splits)
+                    prepared_dataset, splits = prepare_for_model_session(
                         dataset=prepared_dataset,
                         splits=splits,
-                        output_columns=experiment.output_columns,
+                        output_columns=model_session.output_columns,
                     )
 
                     run.split_indexes = json.dumps(
@@ -190,8 +200,8 @@ class ModelJob(BaseJob):
 
                     x, y = select_columns(
                         prepared_dataset,
-                        experiment.input_columns,
-                        experiment.output_columns,
+                        model_session.input_columns,
+                        model_session.output_columns,
                     )
 
                     x = split_dataset(x)
@@ -201,7 +211,7 @@ class ModelJob(BaseJob):
                     log.exception(e)
                     raise JobError(
                         f"""Can not prepare Dataset {dataset.id}
-                        for Task {experiment.task_name}""",
+                        for Task {model_session.task_name}""",
                     ) from e
 
                 try:
@@ -278,6 +288,17 @@ class ModelJob(BaseJob):
                             task,
                         )
                         model = optimizer.get_model()
+                        best_params = optimizer.get_best_params()
+
+                        old_parameters = run.parameters.copy()
+                        updated_parameters = factory.update_parameters(
+                            old_parameters, best_params
+                        )
+
+                        run.parameters = updated_parameters
+                        flag_modified(run, "parameters")
+                        db.commit()
+
                         # Generate hyperparameter plot
                         trials = optimizer.get_trials_values()
                         plot_filenames, plots = optimizer.create_plots(

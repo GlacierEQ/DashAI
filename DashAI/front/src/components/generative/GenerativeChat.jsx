@@ -1,5 +1,5 @@
 import { Box, Divider, IconButton, Typography } from "@mui/material";
-import React from "react";
+import { useTheme } from "@mui/material/styles";
 import InfoIcon from "@mui/icons-material/Info";
 import ArrowRightAltIcon from "@mui/icons-material/ArrowRightAlt";
 import { ChatBubble } from "./ChatBubble";
@@ -8,19 +8,33 @@ import {
   getProcessesBySessionId,
   deleteProcessById,
 } from "../../api/process";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { postProcess } from "../../api/process";
 import { enqueueGenerativeProcessJob } from "../../api/job";
 import { startJobQueue } from "../../api/job";
 import { getHistoryBySessionId, getSessionById } from "../../api/session";
 import InfoSessionModal from "./InfoSessionModal";
 import { useSnackbar } from "notistack";
-import { TextInput } from "./TextInput";
 import { MediaInput } from "./MediaInput";
-import JobQueueWidget from "../jobs/JobQueueWidget";
-import { getRunStatus } from "../../utils/runStatus";
+import { Trans, useTranslation } from "react-i18next";
+import { useGenerative } from "./GenerativeContext";
+import { useTourContext } from "../tour/TourProvider";
 
-export default function GenerativeChat({ sessionId, taskName, paramsVersion }) {
+export default function GenerativeChat() {
+  const theme = useTheme();
+
+  const {
+    selectedSessionId: sessionId,
+    selectedTaskName: taskName,
+    tasks,
+    paramsVersion,
+  } = useGenerative();
+
+  const inputsCardinality = useMemo(() => {
+    const task = tasks?.find((t) => t.name === taskName);
+    return task?.metadata?.inputs ?? { str: 1 };
+  }, [tasks, taskName]);
+
   const [history, setHistory] = useState([]);
   const [messages, setMessages] = useState([]);
   const [messagesWithHistory, setMessagesWithHistory] = useState([]);
@@ -29,6 +43,8 @@ export default function GenerativeChat({ sessionId, taskName, paramsVersion }) {
   const [sessionInfo, setSessionInfo] = useState(null);
   const [sessionInfoVisible, setSessionInfoVisible] = useState(false);
   const { enqueueSnackbar } = useSnackbar();
+  const { t } = useTranslation(["generative"]);
+  const tourContext = useTourContext();
 
   const scrollToBottom = () => {
     if (chatContainerRef.current) {
@@ -60,17 +76,22 @@ export default function GenerativeChat({ sessionId, taskName, paramsVersion }) {
     setIsLoadingMessage(true);
 
     postProcess(sessionId, input).then((response) => {
-      // Añadir el nuevo mensaje en estado inicial
+      // Add the new message to the chat
       setMessages((prevMessages) => [...prevMessages, response]);
 
-      // Encolar el proceso
+      // Enqueue the generative process job
       enqueueGenerativeProcessJob(response.id).then(() => {
         startJobQueue(true).then(() => {
-          // Aquí NO arrancamos polling manual,
-          // el useEffect se encargará de actualizar este mensaje
           setIsLoadingMessage(false);
         });
       });
+
+      // End tour if on final step
+      if (tourContext?.run && tourContext?.stepIndex === 8) {
+        setTimeout(() => {
+          tourContext.stopTour();
+        }, 100);
+      }
     });
   };
 
@@ -96,8 +117,8 @@ export default function GenerativeChat({ sessionId, taskName, paramsVersion }) {
     const intervalId = setInterval(() => {
       const unfinished = messages.filter(
         (m) =>
-          getRunStatus(m.status) !== "Finished" &&
-          getRunStatus(m.status) !== "Error",
+          m.status !== 3 && // Not Finished
+          m.status !== 4, // Not Error
       );
 
       if (unfinished.length === 0) {
@@ -108,13 +129,16 @@ export default function GenerativeChat({ sessionId, taskName, paramsVersion }) {
       // Fetch latest status for each unfinished process
       unfinished.forEach((msg) => {
         getProcessById(msg.id).then((process) => {
-          const status = getRunStatus(process.status);
+          const status = process.status;
 
-          if (status === "Error") {
+          // Error
+          if (status === 4) {
             enqueueSnackbar(
-              `The process has failed. Deleting it...${
-                process.output?.[0]?.data ? `\n${process.output[0].data}` : ""
-              }`,
+              t("generative:error.processError", {
+                error: process.output?.[0]?.data
+                  ? `\n${process.output[0].data}`
+                  : "",
+              }),
               {
                 autoHideDuration: 8000,
                 style: { whiteSpace: "pre-line" },
@@ -184,23 +208,20 @@ export default function GenerativeChat({ sessionId, taskName, paramsVersion }) {
       flexDirection="column"
       justifyContent="flex-start"
       alignItems="center"
-      gap={1}
       width={"100%"}
       height={"100%"}
-      //bgcolor={"background.box"}
+      sx={{ overflow: "hidden", minHeight: 0 }}
     >
       {/* Model display */}
       <Box
         sx={{
           width: "100%",
-          height: "30px",
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
           alignItems: "center",
           borderRadius: 1,
           opacity: 0.5,
-          mb: 1,
         }}
       >
         <Box
@@ -210,6 +231,8 @@ export default function GenerativeChat({ sessionId, taskName, paramsVersion }) {
           justifyContent="space-between"
           gap={0.5}
           width={"100%"}
+          height={"32px"}
+          mb={2}
         >
           <Typography>
             {sessionInfo?.name ? sessionInfo.name : "Untitled Session"}{" "}
@@ -220,9 +243,9 @@ export default function GenerativeChat({ sessionId, taskName, paramsVersion }) {
             <IconButton onClick={() => setSessionInfoVisible(true)}>
               <InfoIcon
                 sx={{
-                  color: "#a0a0a0",
+                  color: "text.secondary",
                   "&:hover": {
-                    color: "#ffffff",
+                    color: "text.primary",
                   },
                 }}
               />
@@ -231,7 +254,7 @@ export default function GenerativeChat({ sessionId, taskName, paramsVersion }) {
         </Box>
       </Box>
 
-      <Divider sx={{ width: "100%" }} />
+      <Divider sx={{ width: "100%", bgcolor: "divider" }} />
 
       {/* Chat display */}
       <Box
@@ -241,23 +264,12 @@ export default function GenerativeChat({ sessionId, taskName, paramsVersion }) {
         alignItems="flex-start"
         gap={1}
         width={"100%"}
-        height={"100%"}
+        flex={1}
+        minHeight={0}
         overflow={"auto"}
         mt={1}
         p={2}
         ref={chatContainerRef}
-        sx={{
-          "&::-webkit-scrollbar": {
-            width: "8px",
-          },
-          "&::-webkit-scrollbar-thumb": {
-            backgroundColor: "#555",
-            borderRadius: "4px",
-          },
-          "&::-webkit-scrollbar-thumb:hover": {
-            backgroundColor: "#888",
-          },
-        }}
       >
         {messagesWithHistory?.map((message) => {
           return (
@@ -273,8 +285,10 @@ export default function GenerativeChat({ sessionId, taskName, paramsVersion }) {
               mt={1}
             >
               {message.type === "history" ? (
-                <Typography sx={{ fontSize: "0.875rem", opacity: 0.8 }}>
-                  Params updated: {message.changedMessage}
+                <Typography variant="body1" sx={{ opacity: 0.8 }}>
+                  <Trans i18nKey="generative:label.parameterChangeEvent">
+                    Parameters updated: <span>{message.changedMessage}</span>
+                  </Trans>
                 </Typography>
               ) : (
                 <>
@@ -303,21 +317,14 @@ export default function GenerativeChat({ sessionId, taskName, paramsVersion }) {
       </Box>
 
       {/* Chat input */}
-      {taskName === "ControlNetTask" ? (
-        <MediaInput
-          onSendMessage={(input) => {
-            handleSendMessage(input);
-          }}
-          isLoading={isLoadingMessage}
-        />
-      ) : (
-        <TextInput
-          onSendMessage={(input) => {
-            handleSendMessage(input);
-          }}
-          isLoading={isLoadingMessage}
-        />
-      )}
+      <MediaInput
+        key={sessionId}
+        onSendMessage={(input) => {
+          handleSendMessage(input);
+        }}
+        isLoading={isLoadingMessage}
+        inputsCardinality={inputsCardinality}
+      />
 
       {/* Session Info Modal */}
       {sessionInfo && (
@@ -327,8 +334,6 @@ export default function GenerativeChat({ sessionId, taskName, paramsVersion }) {
           onClose={() => setSessionInfoVisible(false)}
         />
       )}
-
-      <JobQueueWidget />
     </Box>
   );
 }

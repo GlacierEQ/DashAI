@@ -1,28 +1,28 @@
 import { useState } from "react";
 import { Box, Typography } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import FormSchemaButtonGroup from "../../shared/FormSchemaButtonGroup";
 import ColumnSelector from "../ColumnSelector";
 import { useTourContext } from "../../tour/TourProvider";
+import { useTranslation } from "react-i18next";
 
 export default function ScopeStepExplorer({
   notebook,
   tool,
   setScopeColumns,
   nextStep,
+  hideButtons = false,
 }) {
+  const theme = useTheme();
   const [isSelectionValid, setIsSelectionValid] = useState(false);
+  const allowedTypes = tool?.metadata?.allowed_types || [];
   const allowedDtypes = tool?.metadata?.allowed_dtypes || [];
-  const restrictedDtypes = tool?.metadata?.restricted_dtypes || [];
   const inputCardinality = tool?.metadata?.input_cardinality || {};
   const tourContext = useTourContext();
+  const { t } = useTranslation(["datasets", "common"]);
 
   const handleSubmit = () => {
     nextStep();
-    if (tourContext && tourContext.run) {
-      setTimeout(() => {
-        tourContext.nextStep();
-      }, 500);
-    }
   };
 
   return (
@@ -30,50 +30,44 @@ export default function ScopeStepExplorer({
       sx={{
         display: "flex",
         flexDirection: "column",
-        flexGrow: 1,
+        flex: 1,
         height: "100%",
-        gap: 1,
+        minHeight: 0,
       }}
       data-tour="column-selector-explorer-container"
     >
       {/* Content */}
-      <Box sx={{ flexGrow: 1, overflowY: "auto" }}>
-        <Typography variant="subtitle2" gutterBottom>
-          Step 1: Select Scope
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          Select the columns to be used by the explorer.
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+        <Typography
+          variant="body2"
+          sx={{ color: theme.palette.text.primary, mb: 1.5 }}
+        >
+          {t("datasets:label.selectColumnsForExplorerScope")}
         </Typography>
 
         <ColumnSelector
           file_path={notebook.file_path}
           inputCardinality={inputCardinality}
+          allowedTypes={allowedTypes}
           allowedDtypes={allowedDtypes}
-          restrictedDtypes={restrictedDtypes}
           onSelectionChange={(selected) => setScopeColumns(selected)}
           onValidationChange={(isValid) => setIsSelectionValid(isValid)}
         />
       </Box>
 
       {/* Buttons */}
-      <Box
-        sx={{
-          flexShrink: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "flex-end",
-          gap: 1,
-        }}
-      >
+      {!hideButtons && (
         <FormSchemaButtonGroup
           onFormSubmit={handleSubmit}
           error={!isSelectionValid}
           saveButtonText={
-            Object.values(tool.schema.properties).length > 0 ? "Next" : "Save"
+            Object.values(tool.schema.properties).length > 0
+              ? t("common:next")
+              : t("common:save")
           }
           data-tour="explorer-scope-next-button"
         />
-      </Box>
+      )}
     </Box>
   );
 }

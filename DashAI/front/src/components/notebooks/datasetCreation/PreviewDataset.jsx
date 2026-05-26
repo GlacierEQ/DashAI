@@ -1,9 +1,20 @@
 import { useCallback, useEffect, useState, useRef } from "react";
 import PropTypes from "prop-types";
-import { Box, Button, CircularProgress, Grid, Typography } from "@mui/material";
+import {
+  Box,
+  Button,
+  CircularProgress,
+  Grid,
+  IconButton,
+  Tooltip,
+  Typography,
+} from "@mui/material";
+import { UploadFile as UploadFileIcon } from "@mui/icons-material";
+import { useTheme } from "@mui/material/styles";
 import { useSnackbar } from "notistack";
 import { previewWithTypes } from "../../../api/datasets";
 import PreviewDatasetTable from "./PreviewDatasetTable";
+import { useTranslation } from "react-i18next";
 
 /**
  * This component shows a preview of the dataset before final upload.
@@ -12,19 +23,25 @@ import PreviewDatasetTable from "./PreviewDatasetTable";
  * @param {function} onChangeDataset - Callback function when the user wants to change the dataset
  * @param {function} onPreviewError - Callback function to notify parent of preview errors
  * @param {function} onTypesChanged - Callback to notify parent when column types change
+ * @param {function} onColumnRename - Callback to notify parent when columns are renamed (oldName, newName)
+ * @param {function} onPreviewLoaded - Callback to notify parent when preview is loaded
  */
 function PreviewDataset({
   datasetData,
   onChangeDataset,
   onPreviewError,
   onTypesChanged,
+  onColumnRename,
+  onPreviewLoaded,
 }) {
+  const theme = useTheme();
   const { enqueueSnackbar } = useSnackbar();
   const [previewData, setPreviewData] = useState(null);
   const [columnTypes, setColumnTypes] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const onTypesChangedRef = useRef(onTypesChanged);
+  const { t } = useTranslation(["common", "datasets"]);
 
   useEffect(() => {
     onTypesChangedRef.current = onTypesChanged;
@@ -37,9 +54,15 @@ function PreviewDataset({
   }, [error, onPreviewError]);
 
   useEffect(() => {
+    if (onPreviewLoaded && !loading && !error) {
+      onPreviewLoaded();
+    }
+  }, [loading, error, onPreviewLoaded]);
+
+  useEffect(() => {
     const loadPreview = async () => {
       if (!datasetData) {
-        setError("No dataset data available");
+        setError(t("datasets:error.noDatasetDataAvailable"));
         setLoading(false);
         return;
       }
@@ -68,7 +91,7 @@ function PreviewDataset({
         setError(null);
       } catch (err) {
         console.error("Error loading preview:", err);
-        setError("Failed to load preview");
+        setError(t("datasets:error.loadingDatasetPreview"));
       } finally {
         setLoading(false);
       }
@@ -87,11 +110,24 @@ function PreviewDataset({
 
         Object.keys(typeChanges).forEach((columnName) => {
           const change = typeChanges[columnName];
-          updatedTypes[columnName] = {
-            ...updatedTypes[columnName],
+          const prev = updatedTypes[columnName] || {};
+          const updated = {
+            ...prev,
             type: change.new_type,
             dtype: change.new_dtype,
           };
+          // When changing to Categorical, set a default encoder if not already present
+          if (change.new_type === "Categorical" && !updated.encoder) {
+            updated.encoder =
+              change.new_dtype === "int64" || change.new_dtype === "float64"
+                ? "label"
+                : "one_hot";
+          }
+          // When changing away from Categorical, drop encoder
+          if (change.new_type !== "Categorical") {
+            delete updated.encoder;
+          }
+          updatedTypes[columnName] = updated;
         });
 
         if (onTypesChangedRef.current) {
@@ -101,11 +137,33 @@ function PreviewDataset({
         return updatedTypes;
       });
 
-      enqueueSnackbar("Column types updated successfully", {
+      enqueueSnackbar(t("datasets:message.columnTypesUpdated"), {
         variant: "success",
       });
     },
     [enqueueSnackbar, onTypesChanged],
+  );
+
+  const handleEncoderChange = useCallback((columnName, newEncoder) => {
+    setColumnTypes((prevTypes) => {
+      const updatedTypes = {
+        ...prevTypes,
+        [columnName]: { ...prevTypes[columnName], encoder: newEncoder },
+      };
+      if (onTypesChangedRef.current) {
+        onTypesChangedRef.current(updatedTypes);
+      }
+      return updatedTypes;
+    });
+  }, []);
+
+  const handleColumnRename = useCallback(
+    (oldName, newName) => {
+      if (onColumnRename) {
+        onColumnRename(oldName, newName);
+      }
+    },
+    [onColumnRename],
   );
 
   return (
@@ -166,7 +224,7 @@ function PreviewDataset({
                 fontSize: "1.3rem",
                 color: "text.secondary",
                 "&:hover": {
-                  backgroundColor: "action.hover",
+                  backgroundColor: theme.palette.ui.hover,
                 },
               }}
             >
@@ -194,29 +252,35 @@ function PreviewDataset({
               }}
             >
               <Typography variant="body2" color="text.secondary">
-                Showing {previewData.sample.length} of{" "}
-                {previewData.preview_row_count} rows analyzed for type
-                inference.
+                {t("datasets:label.showingRowsInference", {
+                  sampleLength: previewData.sample.length,
+                  previewRowCount: previewData.preview_row_count,
+                })}
                 <br />
-                You can change column types by clicking on the dropdown in each
-                column header.
+                {t("datasets:label.changeColumnTypesInfo")}
               </Typography>
 
-              <Button
-                variant="contained"
-                size="small"
-                onClick={onChangeDataset}
-                sx={{
-                  fontSize: "0.7rem",
-                  px: 1.5,
-                  py: 0.5,
-                  textTransform: "uppercase",
-                  minWidth: "auto",
-                  flexShrink: 0,
-                }}
-              >
-                Re-upload dataset
-              </Button>
+              <Tooltip title={t("datasets:button.reUploadDataset")}>
+                <IconButton
+                  onClick={onChangeDataset}
+                  size="small"
+                  sx={{
+                    flexShrink: 0,
+                    border: `1px solid ${theme.palette.action.disabled}`,
+                    borderRadius: 2,
+                    color: "text.secondary",
+                    padding: "4px",
+                    transition: "color 0.2s, border-color 0.2s",
+                    "&:hover": {
+                      backgroundColor: "transparent",
+                      color: "primary.main",
+                      borderColor: theme.palette.primary.main,
+                    },
+                  }}
+                >
+                  <UploadFileIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
             </Box>
 
             <Box sx={{ width: "100%" }}>
@@ -226,6 +290,8 @@ function PreviewDataset({
                 file={datasetData.file}
                 params={datasetData.params}
                 onTypeChange={handleTypeChange}
+                onColumnRename={handleColumnRename}
+                onEncoderChange={handleEncoderChange}
               />
             </Box>
           </Box>
@@ -240,6 +306,7 @@ PreviewDataset.propTypes = {
   onChangeDataset: PropTypes.func,
   onPreviewError: PropTypes.func,
   onTypesChanged: PropTypes.func,
+  onColumnRename: PropTypes.func,
 };
 
 export default PreviewDataset;

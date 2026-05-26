@@ -1,6 +1,4 @@
-import numpy as np
-import torch
-import torch.nn as nn
+from typing import TYPE_CHECKING
 
 from DashAI.back.core.enums.metrics import LevelEnum, SplitEnum
 from DashAI.back.core.schema_fields import (
@@ -12,13 +10,24 @@ from DashAI.back.core.schema_fields import (
     optimizer_int_field,
     schema_field,
 )
-from DashAI.back.dataloaders.classes.dashai_dataset import DashAIDataset
+from DashAI.back.core.utils import MultilingualString
 from DashAI.back.models.regression_model import RegressionModel
 from DashAI.back.models.utils import DEVICE_ENUM, DEVICE_PLACEHOLDER, DEVICE_TO_IDX
 
+if TYPE_CHECKING:
+    from numpy import ndarray
+
+    from DashAI.back.dataloaders.classes.dashai_dataset import DashAIDataset
+
 
 class MLPRegressorSchema(BaseSchema):
-    """PyTorch MLP Regressor Schema."""
+    """Schema that configures the Multi-layer Perceptron (MLP) Regressor.
+
+    The MLP Regressor is a fully-connected feedforward neural network with a single
+    hidden layer, trained with backpropagation using the Adam optimiser and mean
+    squared error loss. It is used for tabular regression tasks. The underlying
+    implementation uses PyTorch (``torch.nn``).
+    """
 
     hidden_size: schema_field(
         optimizer_int_field(ge=1),
@@ -28,13 +37,25 @@ class MLPRegressorSchema(BaseSchema):
             "lower_bound": 1,
             "upper_bound": 15,
         },
-        description="Number of neurons in the hidden layer.",
+        description=MultilingualString(
+            en="Number of neurons in the hidden layer.",
+            es="Número de neuronas en la capa oculta.",
+            pt="Número de neurônios na camada oculta.",
+        ),
+        alias=MultilingualString(
+            en="Hidden size", es="Tamaño oculto", pt="Tamanho oculto"
+        ),
     )  # type: ignore
 
     activation: schema_field(
         enum_field(enum=["relu", "tanh", "sigmoid", "identity"]),
         placeholder="relu",
-        description="Activation function.",
+        description=MultilingualString(
+            en="Activation function.",
+            es="Función de activación.",
+            pt="Função de ativação.",
+        ),
+        alias=MultilingualString(en="Activation", es="Activación", pt="Ativação"),
     )  # type: ignore
 
     learning_rate: schema_field(
@@ -45,7 +66,14 @@ class MLPRegressorSchema(BaseSchema):
             "lower_bound": 1e-6,
             "upper_bound": 1.0,
         },
-        description="Initial learning rate for the optimizer.",
+        description=MultilingualString(
+            en="Initial learning rate for the optimizer.",
+            es="Tasa de aprendizaje inicial para el optimizador.",
+            pt="Taxa de aprendizado inicial para o otimizador.",
+        ),
+        alias=MultilingualString(
+            en="Learning rate", es="Tasa de aprendizaje", pt="Taxa de aprendizado"
+        ),
     )  # type: ignore
 
     epochs: schema_field(
@@ -56,76 +84,248 @@ class MLPRegressorSchema(BaseSchema):
             "lower_bound": 1,
             "upper_bound": 15,
         },
-        description="Total number of training passes over the dataset.",
+        description=MultilingualString(
+            en="Total number of training passes over the dataset.",
+            es="Número total de pasadas de entrenamiento sobre el conjunto de datos.",
+            pt="Número total de passagens de treinamento sobre o conjunto de dados.",
+        ),
+        alias=MultilingualString(en="Epochs", es="Épocas", pt="Épocas"),
     )  # type: ignore
 
     batch_size: schema_field(
         none_type(int_field(ge=1)),
         placeholder=32,
-        description="Number of samples per gradient update during training. "
-        "If greater than dataset size or None, uses full dataset.",
+        description=MultilingualString(
+            en=(
+                "Number of samples per gradient update during training. "
+                "If greater than dataset size or None, uses full dataset."
+            ),
+            es=(
+                "Número de muestras por actualización de gradiente durante el "
+                "entrenamiento. Si es mayor que el tamaño del dataset o None, "
+                "usa el dataset completo."
+            ),
+            pt=(
+                "Número de amostras por atualização de gradiente durante o "
+                "treinamento. Se maior que o tamanho do conjunto ou None, "
+                "usa o conjunto completo."
+            ),
+        ),
+        alias=MultilingualString(
+            en="Batch size", es="Tamaño de lote", pt="Tamanho do lote"
+        ),
     )  # type: ignore
 
     device: schema_field(
         enum_field(enum=DEVICE_ENUM),
         placeholder=DEVICE_PLACEHOLDER,
-        description="Hardware device (CPU/GPU).",
+        description=MultilingualString(
+            en="Hardware device (CPU/GPU).",
+            es="Dispositivo de hardware (CPU/GPU).",
+            pt="Dispositivo de hardware (CPU/GPU).",
+        ),
+        alias=MultilingualString(en="Device", es="Dispositivo", pt="Dispositivo"),
     )  # type: ignore
 
     log_train_every_n_epochs: schema_field(
         none_type(int_field(ge=1)),
         placeholder=1,
-        description="Log metrics for train split every n epochs during training. "
-        "If None, it won't log per epoch.",
+        description=MultilingualString(
+            en=(
+                "Log metrics for train split every n epochs during training. "
+                "If None, it won't log per epoch."
+            ),
+            es=(
+                "Registrar métricas del split de entrenamiento cada n épocas. "
+                "Si es None, no registrará por época."
+            ),
+            pt=(
+                "Registrar métricas do split de treinamento a cada n épocas. "
+                "Se None, não registrará por época."
+            ),
+        ),
+        alias=MultilingualString(
+            en="Log train every N epochs",
+            es="Registrar entrenamiento cada N épocas",
+            pt="Registrar treinamento a cada N épocas",
+        ),
     )  # type: ignore
 
     log_train_every_n_steps: schema_field(
         none_type(int_field(ge=1)),
         placeholder=None,
-        description="Log metrics for train split every n steps during training. "
-        "If None, it won't log per step.",
+        description=MultilingualString(
+            en=(
+                "Log metrics for train split every n steps during training. "
+                "If None, it won't log per step."
+            ),
+            es=(
+                "Registrar métricas del split de entrenamiento cada n pasos. "
+                "Si es None, no registrará por paso."
+            ),
+            pt=(
+                "Registrar métricas do split de treinamento a cada n passos. "
+                "Se None, não registrará por passo."
+            ),
+        ),
+        alias=MultilingualString(
+            en="Log train every N steps",
+            es="Registrar entrenamiento cada N pasos",
+            pt="Registrar treinamento a cada N passos",
+        ),
     )  # type: ignore
 
     log_validation_every_n_epochs: schema_field(
         none_type(int_field(ge=1)),
         placeholder=1,
-        description="Log metrics for validation split every n epochs during training. "
-        "If None, it won't log per epoch.",
+        description=MultilingualString(
+            en=(
+                "Log metrics for validation split every n epochs during training. "
+                "If None, it won't log per epoch."
+            ),
+            es=(
+                "Registrar métricas del split de validación cada n épocas. "
+                "Si es None, no registrará por época."
+            ),
+            pt=(
+                "Registrar métricas do split de validação a cada n épocas. "
+                "Se None, não registrará por época."
+            ),
+        ),
+        alias=MultilingualString(
+            en="Log validation every N epochs",
+            es="Registrar validación cada N épocas",
+            pt="Registrar validação a cada N épocas",
+        ),
     )  # type: ignore
 
     log_validation_every_n_steps: schema_field(
         none_type(int_field(ge=1)),
         placeholder=None,
-        description="Log metrics for validation split every n steps during training. "
-        "If None, it won't log per step.",
+        description=MultilingualString(
+            en=(
+                "Log metrics for validation split every n steps during training. "
+                "If None, it won't log per step."
+            ),
+            es=(
+                "Registrar métricas del split de validación cada n pasos. "
+                "Si es None, no registrará por paso."
+            ),
+            pt=(
+                "Registrar métricas do split de validação a cada n passos. "
+                "Se None, não registrará por passo."
+            ),
+        ),
+        alias=MultilingualString(
+            en="Log validation every N steps",
+            es="Registrar validación cada N pasos",
+            pt="Registrar validação a cada N passos",
+        ),
     )  # type: ignore
 
 
-class MLP(nn.Module):
-    def __init__(self, input_dim, hidden_size, activation_name):
-        super().__init__()
-        activations = {
-            "relu": nn.ReLU(),
-            "tanh": nn.Tanh(),
-            "sigmoid": nn.Sigmoid(),
-            "identity": nn.Identity(),
-        }
-        self.model = nn.Sequential(
-            nn.Linear(input_dim, hidden_size),
-            activations.get(activation_name, nn.ReLU()),
-            nn.Linear(hidden_size, 1),
-        )
-
-    def forward(self, x):
-        return self.model(x)
-
-
 class MLPRegression(RegressionModel):
+    """Single hidden-layer MLP regressor implemented in PyTorch.
+
+    A Multi-layer Perceptron (MLP) is a feedforward neural network composed of an
+    input layer, one hidden layer of configurable width, and a single linear output
+    neuron. The hidden layer uses a configurable activation function (ReLU, tanh,
+    sigmoid, or identity). The network is trained by minimising the mean squared
+    error using the Adam optimiser and mini-batch gradient descent via
+    backpropagation.
+
+    Key hyperparameters include ``hidden_size`` (number of neurons in the hidden
+    layer), ``activation``, ``learning_rate``, ``epochs``, ``batch_size``, and
+    ``device`` (CPU or GPU). The model also supports per-epoch and per-step metric
+    logging. The implementation uses PyTorch (``torch.nn``).
+
+    References
+    ----------
+    - [1] Rumelhart, D.E., Hinton, G.E., & Williams, R.J. (1986).
+           "Learning representations by back-propagating errors."
+           Nature, 323(6088), 533-536. https://doi.org/10.1038/323533a0
+    - [2] Kingma, D.P. & Ba, J. (2015). "Adam: A Method for Stochastic
+           Optimization." ICLR 2015. https://arxiv.org/abs/1412.6980
+    """
+
     SCHEMA = MLPRegressorSchema
-    DISPLAY_NAME: str = "Multi-layer Perceptron (MLP) Regression"
+    DISPLAY_NAME: str = MultilingualString(
+        en="Multi-layer Perceptron (MLP) Regression",
+        es="Perceptrón Multicapa (MLP) Regresión",
+        pt="Regressor MLP",
+    )
+    DESCRIPTION: str = MultilingualString(
+        en="Neural network with multiple hidden layers for regression.",
+        es="Red neuronal con múltiples capas ocultas para regresión.",
+        pt="Rede neural com múltiplas camadas ocultas para regressão.",
+    )
     COLOR: str = "#FF7043"
+    ICON: str = "Psychology"
 
     def __init__(self, **kwargs) -> None:
+        """Initialize the MLP regressor and set up the inner PyTorch module class.
+
+        Parameters
+        ----------
+        **kwargs : dict
+            Configuration keyword arguments matching ``MLPRegressorSchema`` fields,
+            including ``hidden_size``, ``activation``, ``learning_rate``, ``epochs``,
+            ``batch_size``, and ``device``.
+        """
+        import torch.nn as nn
+
+        class MLP(nn.Module):
+            """Single hidden-layer feedforward network built as a ``nn.Sequential``.
+
+            Used internally by ``MLPRegression`` to create a configurable
+            MLP with one hidden layer, the chosen activation function, and a
+            linear output layer.
+            """
+
+            def __init__(self, input_dim, hidden_size, activation_name):
+                """Build the sequential MLP architecture.
+
+                Parameters
+                ----------
+                input_dim : int
+                    Number of input features.
+                hidden_size : int
+                    Number of units in the single hidden layer.
+                activation_name : str
+                    Activation function name: one of ``"relu"``, ``"tanh"``,
+                    ``"sigmoid"``, or ``"identity"``.  Defaults to ReLU if the
+                    name is not recognised.
+                """
+                super().__init__()
+                activations = {
+                    "relu": nn.ReLU(),
+                    "tanh": nn.Tanh(),
+                    "sigmoid": nn.Sigmoid(),
+                    "identity": nn.Identity(),
+                }
+                self.model = nn.Sequential(
+                    nn.Linear(input_dim, hidden_size),
+                    activations.get(activation_name, nn.ReLU()),
+                    nn.Linear(hidden_size, 1),
+                )
+
+            def forward(self, x):
+                """Run a forward pass through the network.
+
+                Parameters
+                ----------
+                x : torch.Tensor
+                    Input tensor of shape ``(batch_size, input_dim)``.
+
+                Returns
+                -------
+                torch.Tensor
+                    Output tensor of shape ``(batch_size, 1)``.
+                """
+                return self.model(x)
+
+        self.mlp = MLP
+
         self.params = kwargs
         self.device = (
             f"cuda:{DEVICE_TO_IDX.get(kwargs.get('device'))}"
@@ -136,11 +336,31 @@ class MLPRegression(RegressionModel):
 
     def train(
         self,
-        x_train: DashAIDataset,
-        y_train: DashAIDataset,
-        x_validation: DashAIDataset = None,
-        y_validation: DashAIDataset = None,
+        x_train: "DashAIDataset",
+        y_train: "DashAIDataset",
+        x_validation: "DashAIDataset" = None,
+        y_validation: "DashAIDataset" = None,
     ) -> "MLPRegression":
+        """Train the MLP regressor using Adam optimiser and MSE loss.
+
+        Parameters
+        ----------
+        x_train : DashAIDataset
+            The input features for training.
+        y_train : DashAIDataset
+            The regression targets for training.
+        x_validation : DashAIDataset, optional
+            Input features for validation metric logging. Defaults to None.
+        y_validation : DashAIDataset, optional
+            Target values for validation metric logging. Defaults to None.
+
+        Returns
+        -------
+        MLPRegression
+            The trained model instance (self).
+        """
+        import torch
+
         # 1. Prepare Data
         x_values = self.prepare_dataset(x_train, is_fit=True).to_pandas().values
         y_values = self.prepare_output(y_train, is_fit=True).to_pandas().values
@@ -151,7 +371,7 @@ class MLPRegression(RegressionModel):
         )
 
         # 2. Init Model & Optimizer
-        self.model = MLP(
+        self.model = self.mlp(
             input_dim=X_tensor.shape[1],
             hidden_size=self.params.get("hidden_size", 100),
             activation_name=self.params.get("activation", "relu"),
@@ -160,7 +380,7 @@ class MLPRegression(RegressionModel):
         optimizer = torch.optim.Adam(
             self.model.parameters(), lr=self.params.get("learning_rate", 0.001)
         )
-        criterion = nn.MSELoss()
+        criterion = torch.nn.MSELoss()
 
         # 3. Training Loop using Epochs
         total_epochs = self.params.get("epochs", 3)
@@ -248,7 +468,21 @@ class MLPRegression(RegressionModel):
 
         return self
 
-    def predict(self, x: DashAIDataset) -> np.ndarray:
+    def predict(self, x: "DashAIDataset") -> "ndarray":
+        """Generate regression predictions for the input dataset.
+
+        Parameters
+        ----------
+        x : DashAIDataset
+            The input features to predict on.
+
+        Returns
+        -------
+        ndarray
+            Predicted continuous values as a 1-D NumPy array.
+        """
+        import torch
+
         self.model.eval()
         x_proc = self.prepare_dataset(x, is_fit=False).to_pandas().values
         x_tensor = torch.tensor(x_proc, dtype=torch.float32).to(self.device)
@@ -256,6 +490,15 @@ class MLPRegression(RegressionModel):
             return self.model(x_tensor).cpu().numpy().flatten()
 
     def save(self, filename: str) -> None:
+        """Save the trained model weights and configuration to disk.
+
+        Parameters
+        ----------
+        filename : str
+            Path where the model checkpoint will be saved.
+        """
+        import torch
+
         torch.save(
             {
                 "state": self.model.state_dict(),
@@ -267,11 +510,25 @@ class MLPRegression(RegressionModel):
 
     @staticmethod
     def load(filename: str) -> "MLPRegression":
+        """Restore an ``MLPRegression`` instance from a saved checkpoint.
+
+        Parameters
+        ----------
+        filename : str
+            Path to the checkpoint file saved by ``save``.
+
+        Returns
+        -------
+        MLPRegression
+            The restored model instance with loaded weights.
+        """
+        import torch
+
         data = torch.load(filename)
         instance = MLPRegression(**data["params"])
 
         # Rebuild the model architecture using saved input_dim
-        instance.model = MLP(
+        instance.model = instance.mlp(
             input_dim=data["input_dim"],
             hidden_size=instance.params.get("hidden_size", 5),
             activation_name=instance.params.get("activation", "relu"),

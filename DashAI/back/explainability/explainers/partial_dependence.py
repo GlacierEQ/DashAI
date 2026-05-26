@@ -1,11 +1,4 @@
-from typing import List, Tuple
-
-import numpy as np
-import pandas as pd
-import plotly
-import plotly.express as px
-from datasets import DatasetDict
-from sklearn.inspection import partial_dependence
+from typing import List
 
 from DashAI.back.core.schema_fields import (
     BaseSchema,
@@ -13,44 +6,124 @@ from DashAI.back.core.schema_fields import (
     int_field,
     schema_field,
 )
+from DashAI.back.core.utils import MultilingualString
 from DashAI.back.explainability.global_explainer import BaseGlobalExplainer
-from DashAI.back.models import BaseModel
+from DashAI.back.models.base_model import BaseModel
 from DashAI.back.types.categorical import Categorical
 
 
 class PartialDependenceSchema(BaseSchema):
-    """PartialDependence of a feature shows the average prediction of a machine
-    learning model for each possible value of the feature.
+    """Schema for PartialDependence explainer hyperparameters.
+
+    Configures the grid resolution (number of evenly-spaced evaluation points per
+    feature) and the fraction of training samples used to compute the marginal
+    averages. Higher grid resolution gives smoother curves at the cost of more
+    model evaluations.
     """
 
     grid_resolution: schema_field(
         int_field(ge=1),
         placeholder=100,
-        description="The number of equidistant points to split the range of "
-        "the target feature",
+        description=MultilingualString(
+            en=(
+                "Number of equidistant points to split the range of the target feature."
+            ),
+            es=(
+                "Número de puntos equidistantes para dividir el rango de la "
+                "característica objetivo."
+            ),
+            pt=(
+                "Número de pontos equidistantes para dividir o intervalo da "
+                "característica alvo."
+            ),
+        ),
+        alias=MultilingualString(
+            en="Grid resolution",
+            es="Resolución de la malla",
+            pt="Resolução da grade",
+        ),
     )  # type: ignore
 
     lower_percentile: schema_field(
         float_field(ge=0, le=0.99),
         placeholder=0.05,
-        description="The lower percentile used to limit the feature values.",
+        description=MultilingualString(
+            en=("Lower percentile used to limit the feature values."),
+            es=("Percentil inferior para limitar los valores de la característica."),
+            pt=("Percentil inferior para limitar os valores da característica."),
+        ),
+        alias=MultilingualString(
+            en="Lower percentile",
+            es="Percentil inferior",
+            pt="Percentil inferior",
+        ),
     )  # type: ignore
 
     upper_percentile: schema_field(
         float_field(ge=0.01, le=1),
         placeholder=0.95,
-        description="The upper percentile used to limit the feature values.",
+        description=MultilingualString(
+            en=("Upper percentile used to limit the feature values."),
+            es=("Percentil superior para limitar los valores de la característica."),
+            pt=("Percentil superior para limitar os valores da característica."),
+        ),
+        alias=MultilingualString(
+            en="Upper percentile",
+            es="Percentil superior",
+            pt="Percentil superior",
+        ),
     )  # type: ignore
 
 
 class PartialDependence(BaseGlobalExplainer):
-    """Partial Dependence is a model-agnostic explainability method that
-    shows the average prediction of a machine learning model for each
-    possible value of a feature.
+    """Global explainer that shows how the model's average prediction
+    changes with each feature.
+
+    A Partial Dependence Plot (PDP) marginalises the model output over the
+    distribution of all other features, leaving a curve (or surface) that
+    shows the average effect of the target feature in isolation. For a feature
+    `x_j`, the partial dependence is:
+
+    ::
+
+        f̄(x_j) = E_(x_-j) [ f(x_j, x_-j) ] ≈ (1/n) Σ_i f(x_j, x_-j,i)
+
+
+    PDPs assume feature independence; when features are correlated, the
+    marginalisation extrapolates into regions with low data density. Individual
+    Conditional Expectation (ICE) plots (one line per sample) can be overlaid
+    to detect heterogeneous effects hidden by the average.
+
+    References
+    ----------
+    - [1] Friedman, J.H. (2001). "Greedy function approximation: A gradient
+           boosting machine." Annals of Statistics, 29(5), 1189-1232.
+    - [2] https://scikit-learn.org/stable/modules/partial_dependence.html
     """
 
     COMPATIBLE_COMPONENTS = ["TabularClassificationTask"]
-    DISPLAY_NAME = "Partial Dependence"
+    DISPLAY_NAME = MultilingualString(
+        en="Partial Dependence",
+        es="Dependencia Parcial",
+        pt="Dependência Parcial",
+    )
+    DESCRIPTION = MultilingualString(
+        en=(
+            "Partial Dependence shows the marginal effect of a feature on the "
+            "model's predicted probability by averaging over the distribution of "
+            "other features."
+        ),
+        es=(
+            "La Dependencia Parcial muestra el efecto marginal de una "
+            "característica sobre la probabilidad predicha por el modelo, "
+            "promediando sobre la distribución del resto de características."
+        ),
+        pt=(
+            "A Dependência Parcial mostra o efeito marginal de uma "
+            "característica sobre a probabilidade prevista pelo modelo, "
+            "calculando a média sobre a distribuição das demais características."
+        ),
+    )
     COLOR = "#FFA500"
     SCHEMA = PartialDependenceSchema
 
@@ -88,7 +161,7 @@ class PartialDependence(BaseGlobalExplainer):
         self.grid_resolution = grid_resolution
         self.explanation = None
 
-    def explain(self, dataset: Tuple[DatasetDict, DatasetDict]):
+    def explain(self, dataset):
         """Method to generate the explanation
 
         Parameters
@@ -101,6 +174,10 @@ class PartialDependence(BaseGlobalExplainer):
         dict
             Dictionary with metadata and the partial dependence of each feature
         """
+        # Lazy imports
+        import numpy as np
+        from sklearn.inspection import partial_dependence
+
         x, y = dataset
 
         x_test = x["test"].to_pandas()
@@ -143,7 +220,7 @@ class PartialDependence(BaseGlobalExplainer):
 
         return explanation
 
-    def _create_plot(self, data: List[pd.DataFrame]) -> List[dict]:
+    def _create_plot(self, data: List[object]) -> List[dict]:
         """Helper method to create the explanation plot using plotly.
 
         Parameters
@@ -156,6 +233,10 @@ class PartialDependence(BaseGlobalExplainer):
             list of JSON containing the information of the explanation plot
             to be rendered.
         """
+        # Lazy imports
+        import plotly
+        import plotly.express as px
+
         fig = px.line(
             data[0],
             x=data[0]["grid_values"],
@@ -224,6 +305,9 @@ class PartialDependence(BaseGlobalExplainer):
             list of JSONs containing the information of the explanation plot
             to be rendered.
         """
+        # Lazy import
+        import pandas as pd
+
         explanation = explanation.copy()
         metadata = explanation.pop("metadata")
         target_names = metadata["target_names"]

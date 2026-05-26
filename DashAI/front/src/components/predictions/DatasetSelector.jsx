@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Box,
   Typography,
@@ -11,7 +11,12 @@ import {
   Chip,
 } from "@mui/material";
 import DatasetTable from "../notebooks/dataset/DatasetTable";
-import { getDatasetFile } from "../../api/datasets";
+import {
+  getDatasetFile,
+  getDatasetFileFiltered,
+  getDatasetTypesByFilePath,
+} from "../../api/datasets";
+import { useTranslation } from "react-i18next";
 
 function DatasetSelector({
   experiment,
@@ -19,13 +24,29 @@ function DatasetSelector({
   selectedDataset,
   setSelectedDataset,
 }) {
+  const { t } = useTranslation(["prediction", "common"]);
+  const [columnTypes, setColumnTypes] = useState({});
+
+  useEffect(() => {
+    if (!selectedDataset?.file_path) return;
+    getDatasetTypesByFilePath(selectedDataset.file_path)
+      .then(setColumnTypes)
+      .catch(() => {});
+  }, [selectedDataset?.file_path]);
+
   const fetchDatasetPage = useCallback(
-    async (page, pageSize) => {
-      const data = await getDatasetFile(
-        selectedDataset.file_path,
-        page,
-        pageSize,
-      );
+    async (page, pageSize, filterModel, sortModel) => {
+      const hasFilters =
+        filterModel?.items?.length > 0 || (sortModel && sortModel.length > 0);
+      const data = hasFilters
+        ? await getDatasetFileFiltered(
+            selectedDataset.file_path,
+            page,
+            pageSize,
+            filterModel,
+            sortModel,
+          )
+        : await getDatasetFile(selectedDataset.file_path, page, pageSize);
       return { rows: data.rows ?? [], total: data.total ?? 0 };
     },
     [selectedDataset],
@@ -34,10 +55,10 @@ function DatasetSelector({
   return (
     <Box sx={{ mb: 3 }}>
       <FormControl fullWidth>
-        <InputLabel>Select Dataset</InputLabel>
+        <InputLabel>{t("prediction:label.selectDataset")}</InputLabel>
         <Select
           value={selectedDataset?.id || ""}
-          label="Select Dataset"
+          label={t("prediction:label.selectDataset")}
           onChange={(e) => {
             const dataset = datasets.find((d) => d.id === e.target.value);
             setSelectedDataset(dataset);
@@ -45,7 +66,7 @@ function DatasetSelector({
         >
           {datasets.map((dataset) => (
             <MenuItem key={dataset.id} value={dataset.id}>
-              {dataset.name} ({dataset.total_rows} rows)
+              {dataset.name} ({dataset.total_rows} {t("common:rows")})
             </MenuItem>
           ))}
         </Select>
@@ -53,12 +74,12 @@ function DatasetSelector({
       {selectedDataset && (
         <>
           <Alert severity="info" sx={{ mt: 2 }}>
-            <Box sx={{ fontWeight: 600, mb: 1, fontSize: "1rem" }}>
-              Prediction Configuration
-            </Box>
+            <Typography variant="h5" sx={{ mb: 1 }}>
+              {t("prediction:label.predictionInfo")}
+            </Typography>
 
             <Box sx={{ mb: 1 }}>
-              <strong>Input columns:</strong>
+              <strong>{t("prediction:label.inputColumns")}:</strong>
               <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mt: 0.5 }}>
                 {experiment.input_columns.map((col) => (
                   <Chip
@@ -73,7 +94,7 @@ function DatasetSelector({
             </Box>
 
             <Box sx={{ display: "flex", alignItems: "center" }}>
-              <strong>Target column:</strong>
+              <strong>{t("prediction:label.targetColumn")}:</strong>
               <Chip
                 label={experiment.output_columns[0]}
                 size="small"
@@ -87,10 +108,8 @@ function DatasetSelector({
             <DatasetTable
               fetchPage={fetchDatasetPage}
               initialPageSize={10}
-              autoHeight={true}
               datasetPath={selectedDataset.file_path}
-              sx={{ mt: 2 }}
-              slots={{ toolbar: null }}
+              columnTypes={columnTypes}
             />
           </Paper>
         </>

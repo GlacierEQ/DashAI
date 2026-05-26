@@ -1,11 +1,9 @@
-import React, { useEffect } from "react";
-import { getRunById } from "../../api/run";
-import { getExperimentById } from "../../api/experiment";
-import { getDatasetTypes, getDatasetSample } from "../../api/datasets";
+import React from "react";
 
 import { Box } from "@mui/system";
 import ManualInputForm from "./ManualInputForm";
 import { CircularProgress } from "@mui/material";
+import { useTranslation } from "react-i18next";
 
 export default function ManualInput({
   experiment,
@@ -15,6 +13,8 @@ export default function ManualInput({
   manualInputData,
   setManualInputData,
 }) {
+  const { t } = useTranslation(["prediction"]);
+
   return (
     <Box>
       {loading ? (
@@ -29,7 +29,7 @@ export default function ManualInput({
           setManualInputData={setManualInputData}
         />
       ) : (
-        <div>No experiment data available.</div>
+        <div>{t("prediction:label.noExperimentDataAvailable")}</div>
       )}
     </Box>
   );

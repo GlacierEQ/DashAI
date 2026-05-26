@@ -3,14 +3,17 @@ import { Box, Typography } from "@mui/material";
 import FormSchemaWithSelectedModel from "../../shared/FormSchemaWithSelectedModel";
 import FormSchemaContainer from "../../shared/FormSchemaContainer";
 import { useTourContext } from "../../tour/TourProvider";
+import { useTranslation } from "react-i18next";
 
 export default function ParameterStepExplorer({
   explorer,
   initialParams,
   handleSaveExplorer,
   setStep,
+  hideButtons = false,
 }) {
   const tourContext = useTourContext();
+  const { t } = useTranslation(["datasets"]);
 
   const handleSave = async (params) => {
     await handleSaveExplorer(params);
@@ -23,7 +26,9 @@ export default function ParameterStepExplorer({
 
   useEffect(() => {
     if (tourContext?.run) {
+      // Advance tour once this component is mounted and visible
       const timeout = setTimeout(() => {
+        tourContext.nextStep();
         const button = document.querySelector(
           '[data-tour="create-explorer-button"]',
         );
@@ -38,12 +43,23 @@ export default function ParameterStepExplorer({
 
       return () => clearTimeout(timeout);
     }
-  }, [tourContext?.stepIndex, tourContext?.run]);
+  }, []);
 
   return (
-    <Box flex={1} data-tour="explorer-parameters">
-      <Typography variant="subtitle2" gutterBottom>
-        Step 2: Configure Parameters
+    <Box
+      sx={{
+        flex: 1,
+        minHeight: 0,
+        display: "flex",
+        flexDirection: "column",
+      }}
+      data-tour="explorer-parameters"
+    >
+      <Typography
+        variant="h6"
+        sx={{ fontWeight: 700, color: "primary.main", mb: 1 }}
+      >
+        {t("datasets:label.configureParameters")}
       </Typography>
       <FormSchemaContainer>
         <FormSchemaWithSelectedModel
@@ -51,7 +67,8 @@ export default function ParameterStepExplorer({
           modelToConfigure={explorer}
           initialValues={initialParams}
           onCancel={() => setStep(0)}
-          saveButtonText="Create Explorer"
+          saveButtonText={t("datasets:button.createExplorer")}
+          hideButtons={hideButtons}
         />
       </FormSchemaContainer>
     </Box>

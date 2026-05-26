@@ -11,6 +11,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    MetaData,
     String,
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -19,7 +20,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from DashAI.back.core.enums.metrics import LevelEnum, SplitEnum
 from DashAI.back.core.enums.plugin_tags import PluginTag
 from DashAI.back.core.enums.status import (
-    ConverterListStatus,
+    ConverterStatus,
     DatasetStatus,
     ExplainerStatus,
     ExplorerStatus,
@@ -31,7 +32,16 @@ from DashAI.back.core.enums.status import (
 logger = logging.getLogger(__name__)
 
 
-Base = declarative_base()
+naming_convention = {
+    "ix": "ix_%(table_name)s_%(column_0_name)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
+
+metadata = MetaData(naming_convention=naming_convention)
+Base = declarative_base(metadata=metadata)
 
 
 class Dataset(Base):
@@ -50,8 +60,8 @@ class Dataset(Base):
     notebooks: Mapped[List["Notebook"]] = relationship(
         cascade="all, delete-orphan", back_populates="dataset"
     )
-    experiments: Mapped[List["Experiment"]] = relationship(
-        "Experiment", cascade="all, delete-orphan", back_populates="dataset"
+    model_sessions: Mapped[List["ModelSession"]] = relationship(
+        "ModelSession", cascade="all, delete-orphan", back_populates="dataset"
     )
     predictions: Mapped[List["Prediction"]] = relationship(
         "Prediction", cascade="all, delete-orphan", back_populates="dataset"
@@ -91,10 +101,10 @@ class Dataset(Base):
         self.status = DatasetStatus.ERROR
 
 
-class Experiment(Base):
-    __tablename__ = "experiment"
+class ModelSession(Base):
+    __tablename__ = "model_session"
     """
-    Table to store all the information about a model.
+    Table to store all the information about a model session.
     """
     id: Mapped[int] = mapped_column(primary_key=True)
     dataset_id: Mapped[int] = mapped_column(ForeignKey("dataset.id"))
@@ -116,9 +126,9 @@ class Experiment(Base):
         onupdate=datetime.now,
     )
     runs: Mapped[List["Run"]] = relationship(
-        "Run", cascade="all, delete-orphan", back_populates="experiment"
+        "Run", cascade="all, delete-orphan", back_populates="model_session"
     )
-    dataset = relationship("Dataset", back_populates="experiments")
+    dataset = relationship("Dataset", back_populates="model_sessions")
 
 
 class Run(Base):
@@ -127,8 +137,8 @@ class Run(Base):
     Table to store all the information about a specific run of a model.
     """
     id: Mapped[int] = mapped_column(primary_key=True)
-    experiment_id: Mapped[int] = mapped_column(
-        ForeignKey("experiment.id", ondelete="CASCADE")
+    model_session_id: Mapped[int] = mapped_column(
+        ForeignKey("model_session.id", ondelete="CASCADE")
     )
     huey_id: Mapped[str] = mapped_column(String, nullable=True)
     created: Mapped[DateTime] = mapped_column(DateTime, default=datetime.now)
@@ -162,7 +172,7 @@ class Run(Base):
     delivery_time: Mapped[DateTime] = mapped_column(DateTime, nullable=True)
     start_time: Mapped[DateTime] = mapped_column(DateTime, nullable=True)
     end_time: Mapped[DateTime] = mapped_column(DateTime, nullable=True)
-    experiment = relationship("Experiment", back_populates="runs")
+    model_session = relationship("ModelSession", back_populates="runs")
     predictions = relationship(
         "Prediction", cascade="all, delete-orphan", back_populates="run"
     )
@@ -492,7 +502,7 @@ class GenerativeSession(Base):
     model_name: Mapped[str] = mapped_column(String)
     parameters: Mapped[JSON] = mapped_column(JSON)
     # metadata
-    name: Mapped[str] = mapped_column(String)
+    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     description: Mapped[str] = mapped_column(String, nullable=True)
 
     # Relationship with GenerativeSessionParameterHistory
@@ -524,8 +534,8 @@ class Pipeline(Base):
     prediction: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=True)
 
 
-class ConverterList(Base):
-    __tablename__ = "converter_list"
+class Converter(Base):
+    __tablename__ = "converter"
     """
     Table to store a list of converters applied to a dataset.
     """
@@ -543,9 +553,9 @@ class ConverterList(Base):
         onupdate=datetime.now,
     )
     status: Mapped[Enum] = mapped_column(
-        Enum(ConverterListStatus),
+        Enum(ConverterStatus),
         nullable=False,
-        default=ConverterListStatus.NOT_STARTED,
+        default=ConverterStatus.NOT_STARTED,
     )
     delivery_time: Mapped[DateTime] = mapped_column(DateTime, nullable=True)
     start_time: Mapped[DateTime] = mapped_column(DateTime, nullable=True)
@@ -558,26 +568,26 @@ class ConverterList(Base):
         """Update the status of the list to delivered and set delivery_time
         to now.
         """
-        self.status = ConverterListStatus.DELIVERED
+        self.status = ConverterStatus.DELIVERED
         self.delivery_time = datetime.now()
 
     def set_status_as_started(self) -> None:
         """Update the status of the list to started and set start_time
         to now.
         """
-        self.status = ConverterListStatus.STARTED
+        self.status = ConverterStatus.STARTED
         self.start_time = datetime.now()
 
     def set_status_as_finished(self) -> None:
         """Update the status of the list to finished and set end_time
         to now.
         """
-        self.status = ConverterListStatus.FINISHED
+        self.status = ConverterStatus.FINISHED
         self.end_time = datetime.now()
 
     def set_status_as_error(self) -> None:
         """Update the status of the list to error."""
-        self.status = ConverterListStatus.ERROR
+        self.status = ConverterStatus.ERROR
 
 
 class Notebook(Base):
@@ -602,7 +612,7 @@ class Notebook(Base):
     explorers: Mapped[List["Explorer"]] = relationship(
         back_populates="notebook", cascade="all, delete-orphan"
     )
-    converters: Mapped[List["ConverterList"]] = relationship(
+    converters: Mapped[List["Converter"]] = relationship(
         back_populates="notebook", cascade="all, delete-orphan"
     )
     dataset: Mapped["Dataset"] = relationship(back_populates="notebooks")

@@ -2,18 +2,21 @@ import React from "react";
 import PropTypes from "prop-types";
 import {
   Paper,
-  Alert,
-  AlertTitle,
   CircularProgress,
   Button,
   ButtonGroup,
   Typography,
 } from "@mui/material";
-import { DataGrid, GridToolbar } from "@mui/x-data-grid";
+import {
+  MaterialReactTable,
+  useMaterialReactTable,
+} from "material-react-table";
+import { useTheme } from "@mui/material/styles";
 import ResultsDetails from "./ResultsDetails";
 import { PlayArrow } from "@mui/icons-material";
 import { LoadingButton } from "@mui/lab";
-import { json } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { useTableLocalization } from "../../../utils/useTableLocalization";
 
 function ResultsTableLayout({
   rows,
@@ -23,10 +26,48 @@ function ResultsTableLayout({
   selectedRun,
   handleCloseRunResults,
   columnVisibilityModel,
-  columnGroupingModel,
   handleExecuteRuns,
   handleRun,
 }) {
+  const { t } = useTranslation(["models"]);
+  const theme = useTheme();
+  const localization = useTableLocalization();
+
+  const table = useMaterialReactTable({
+    columns,
+    data: rows,
+    state: {
+      isLoading: loading,
+      columnVisibility: columnVisibilityModel,
+    },
+    enableRowSelection: false,
+    disableRowSelectionOnClick: true,
+    enablePagination: true,
+    initialState: {
+      pagination: { pageSize: 10, pageIndex: 0 },
+      density: "compact",
+    },
+    localization,
+    enableFullScreenToggle: false,
+    enableDensityToggle: false,
+    muiTableProps: {
+      "data-tour": "results-table",
+    },
+    muiTableBodyCellProps: {
+      sx: {
+        "&:focus": { outline: "none" },
+        whiteSpace: "pre",
+      },
+    },
+    mrtTheme: (theme) => ({
+      baseBackgroundColor: theme.palette.background.paper,
+    }),
+    muiTablePaperProps: {
+      elevation: 0,
+      sx: { border: "none" },
+    },
+  });
+
   return (
     <Paper
       sx={{
@@ -48,42 +89,16 @@ function ResultsTableLayout({
               data-tour="runner-dialog-start"
               variant="contained"
               loading={rows.every(
-                (run) => run.status === "Delivered" || run.status === "Started",
+                (run) => run.status === 1 || run.status === 2,
               )}
               endIcon={<PlayArrow />}
               onClick={handleExecuteRuns}
               style={{ borderRadius: 4 }}
             >
-              Run all Models
+              {t("models:button.runAllModels")}
             </LoadingButton>
           </ButtonGroup>
-          <DataGrid
-            rows={rows}
-            columns={columns}
-            initialState={{
-              pagination: {
-                paginationModel: {
-                  pageSize: 10,
-                },
-              },
-              columns: {
-                columnVisibilityModel,
-              },
-            }}
-            experimentalFeatures={{ columnGrouping: true }}
-            columnGroupingModel={columnGroupingModel}
-            pageSizeOptions={[10]}
-            density="compact"
-            disableRowSelectionOnClick
-            autoHeight
-            sx={{
-              ".MuiDataGrid-cell:focus": {
-                outline: "none",
-              },
-              "& .MuiDataGrid-row:hover": {},
-            }}
-            data-tour="results-table"
-          />
+          <MaterialReactTable table={table} />
         </>
       ) : (
         <CircularProgress color="inherit" />
@@ -109,7 +124,8 @@ ResultsTableLayout.propTypes = {
   selectedRunId: PropTypes.number,
   handleCloseRunResults: PropTypes.func,
   columnVisibilityModel: PropTypes.objectOf(PropTypes.bool),
-  columnGroupingModel: PropTypes.array,
+  handleExecuteRuns: PropTypes.func,
+  handleRun: PropTypes.func,
 };
 
 export default ResultsTableLayout;

@@ -1,3 +1,4 @@
+import { useTourContext } from "../../tour/TourProvider";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Virtuoso } from "react-virtuoso";
 import { Box, CircularProgress, Typography } from "@mui/material";
@@ -13,6 +14,7 @@ import { useExplorersAndConverters } from "../context/ExplorersAndConvertersCont
 import { deleteExplorer } from "../../../api/explorer";
 import { deleteConverterById } from "../../../api/converter";
 import { startJobPolling } from "../../../utils/jobPoller";
+import { useTranslation } from "react-i18next";
 
 const RowItem = React.memo(function RowItem({
   item,
@@ -49,16 +51,21 @@ const RowItem = React.memo(function RowItem({
 });
 
 export default function NotebookView({ notebook }) {
-  if (!notebook) {
-    return (
-      <Box
-        sx={{ display: "flex", justifyContent: "center", alignItems: "center" }}
-      >
-        <CircularProgress sx={{ color: "#00BEBB" }} />
-        <Typography>Loading...</Typography>
-      </Box>
-    );
-  }
+  const { t } = useTranslation(["datasets", "common"]);
+  const tourContext = useTourContext();
+
+  useEffect(() => {
+    if (sessionStorage.getItem("startNotebookTour") === "true") {
+      sessionStorage.removeItem("startNotebookTour");
+      setTimeout(() => {
+        if (tourContext && typeof tourContext.startTour === "function") {
+          tourContext.startTour();
+        } else if (tourContext && typeof tourContext.run === "undefined") {
+          tourContext.run = true;
+        }
+      }, 1000);
+    }
+  }, [tourContext]);
 
   const { explorersAndConverters, setExplorersAndConverters } =
     useExplorersAndConverters();
@@ -74,6 +81,7 @@ export default function NotebookView({ notebook }) {
   const listBoxRef = useRef(null);
 
   const fetchExplorersAndConverters = useCallback(async () => {
+    if (!notebook?.id) return;
     try {
       const [explorersData, convertersData] = await Promise.all([
         getExplorersByNotebookId(notebook.id),
@@ -94,7 +102,7 @@ export default function NotebookView({ notebook }) {
     } catch (error) {
       console.error("Failed to fetch explorers and converters:", error);
     }
-  }, [notebook.id, setExplorersAndConverters]);
+  }, [notebook?.id, setExplorersAndConverters]);
 
   const getItemsToDelete = useCallback(
     (converterToDelete) => {
@@ -116,7 +124,9 @@ export default function NotebookView({ notebook }) {
   const handleExplorerDeleteClick = useCallback((explorer) => {
     setExplorerToDelete(explorer);
     setDeleteModalContent(
-      `Are you sure you want to delete the explorer "${explorer?.exploration_type}"? This action cannot be undone.`,
+      t("datasets:label.deleteExplorerConfirmation", {
+        explorer: explorer?.exploration_type,
+      }),
     );
     setOpenDeleteExplorerConfirmation(true);
   }, []);
@@ -129,8 +139,11 @@ export default function NotebookView({ notebook }) {
       setItemsToDelete(items);
 
       setDeleteModalContent(
-        `Are you sure you want to delete the converter "${converter?.converter}"? Deleting this converter will also remove all subsequent converters and explorers applied after it. This action cannot be undone.`,
+        t("datasets:label.deleteConverterConfirmation", {
+          converter: converter?.converter,
+        }),
       );
+
       setOpenDeleteConverterConfirmation(true);
     },
     [getItemsToDelete],
@@ -213,6 +226,17 @@ export default function NotebookView({ notebook }) {
     setListSize(explorersAndConverters.length);
   }, [explorersAndConverters]);
 
+  if (!notebook) {
+    return (
+      <Box
+        sx={{ display: "flex", justifyContent: "center", alignItems: "center" }}
+      >
+        <CircularProgress color="primary" />
+        <Typography>{t("common:loading")}</Typography>
+      </Box>
+    );
+  }
+
   return (
     <Box
       sx={{
@@ -231,9 +255,7 @@ export default function NotebookView({ notebook }) {
             alignItems: "center",
           }}
         >
-          <Typography>
-            Start exploring by adding your first explorer or converter!
-          </Typography>
+          <Typography>{t("datasets:label.noExplorersOrConverters")}</Typography>
         </Box>
       ) : (
         <Virtuoso

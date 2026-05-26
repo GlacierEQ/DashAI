@@ -1,34 +1,39 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Typography, TextField, Box } from "@mui/material";
 import { useFormik } from "formik";
-import CustomLayout from "../../custom/CustomLayout";
-import FormSchemaButtonGroup from "../../shared/FormSchemaButtonGroup";
 import DatasetAutocomplete from "./DatasetAutocomplete";
 import { createNotebook } from "../../../api/notebook";
 import { useSnackbar } from "notistack";
-import { generateSequentialName } from "../../../utils/nameGenerator";
 import NoteBox from "../NoteBox";
+import { useTourContext } from "../../tour/TourProvider";
+import { useTranslation } from "react-i18next";
+import StepperNavigationFooter from "../../shared/StepperNavigationFooter";
 
 export default function UploadNotebookSteps({
   backHome,
   datasets,
   handleNotebookCreated,
   existingNotebooks = [],
+  preselectedDatasetId = null,
 }) {
-  const [selectedDataset, setSelectedDataset] = useState(null);
+  const [selectedDataset, setSelectedDataset] = useState(
+    preselectedDatasetId
+      ? datasets.find((d) => d.id === preselectedDatasetId) || null
+      : null,
+  );
   const { enqueueSnackbar } = useSnackbar();
+  const tourContext = useTourContext();
+  const { t } = useTranslation(["datasets", "common"]);
 
-  const { defaultName } = useMemo(() => {
-    if (!selectedDataset) {
-      return { defaultName: "" };
-    }
+  const defaultName = useMemo(() => {
+    const maxId = existingNotebooks.reduce(
+      (max, nb) => Math.max(max, nb.id ?? 0),
+      0,
+    );
+    return `Notebook_${maxId + 1}`;
+  }, [existingNotebooks]);
 
-    return generateSequentialName({
-      base: `Notebook_${selectedDataset.name}`,
-      items: existingNotebooks,
-      filter: (notebook) => notebook.dataset_id === selectedDataset.id,
-    });
-  }, [selectedDataset, existingNotebooks]);
+  const lastAutoFilledRef = useRef(null);
 
   const formik = useFormik({
     initialValues: {
@@ -52,116 +57,110 @@ export default function UploadNotebookSteps({
 
         const createdNotebook = await createNotebook(notebookData);
 
-        enqueueSnackbar("Notebook created successfully", {
+        enqueueSnackbar(t("datasets:message.notebookCreated"), {
           variant: "success",
         });
         handleNotebookCreated(createdNotebook);
+        if (tourContext?.run) {
+          tourContext.stopTour();
+          sessionStorage.setItem("startNotebookTour", "true");
+        }
       } catch (error) {
         console.error("Error creating notebook:", error);
-        enqueueSnackbar("Error creating notebook", { variant: "error" });
+        enqueueSnackbar(t("datasets:error.errorCreatingNotebook"), {
+          variant: "error",
+        });
       }
     },
   });
 
   useEffect(() => {
-    if (selectedDataset && defaultName && !formik.values.name.trim()) {
-      formik.setValues({
-        name: defaultName,
-        description: formik.values.description,
-      });
-    }
-  }, [
-    selectedDataset,
-    defaultName,
-    formik.values.name,
-    formik.values.description,
-  ]);
-
-  const getNameError = () => {
-    if (!selectedDataset) {
-      return null;
-    }
-
+    if (!defaultName) return;
     const currentName = formik.values.name.trim();
-    if (!currentName) {
-      return "Name is required";
+    if (!currentName || currentName === lastAutoFilledRef.current) {
+      formik.setFieldValue("name", defaultName);
+      lastAutoFilledRef.current = defaultName;
     }
-    return null;
-  };
+  }, [defaultName]);
 
-  const nameError = getNameError();
+  const nameError = formik.values.name.trim() ? null : t("common:nameRequired");
+  const isValid = selectedDataset && !nameError;
 
   return (
-    <CustomLayout title={"Create a New Notebook"} subtitle={""} padding={0}>
-      <NoteBox message="A copy of the selected dataset will be created to work in the notebook without altering the original." />
-      <Typography
-        variant="h6"
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        minHeight: 0,
+      }}
+    >
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="h5" component="h1">
+          {t("datasets:label.createNewNotebook")}
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          {t("datasets:label.createNewNotebookDescription")}
+        </Typography>
+      </Box>
+
+      <Box
         sx={{
-          whiteSpace: "normal",
-          wordBreak: "break-word",
-          mb: 2,
+          flex: 1,
+          minHeight: 0,
+          overflowY: "auto",
+          pt: 1,
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
         }}
       >
-        Select dataset for your notebook
-      </Typography>
-      <DatasetAutocomplete
-        datasets={datasets}
-        selectedDataset={selectedDataset}
-        setSelectedDataset={setSelectedDataset}
-      />
-      <Typography
-        variant="h6"
-        sx={{
-          whiteSpace: "normal",
-          wordBreak: "break-word",
-          my: 2,
-        }}
-      >
-        Name your Notebook
-      </Typography>
-      {/* Notebook name */}
-      <TextField
-        fullWidth
-        label="Notebook Name"
-        name="name"
-        value={formik.values.name}
-        onChange={formik.handleChange}
-        error={Boolean(selectedDataset && nameError)}
-        helperText={selectedDataset ? nameError : ""}
-        sx={{ mb: 2 }}
-        disabled={!selectedDataset}
-        placeholder={
-          !selectedDataset ? "Select a dataset first" : "Notebook Name"
-        }
-        slotProps={{
-          inputLabel: { shrink: true },
-        }}
-      />
-      {/* Notebook description */}
-      <TextField
-        fullWidth
-        label="Notebook Description"
-        name="description"
-        value={formik.values.description}
-        onChange={formik.handleChange}
-        error={Boolean(formik.errors.description)}
-        helperText={formik.errors.description}
-        sx={{ mb: 2 }}
-      />
-      <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2 }}>
-        <FormSchemaButtonGroup
-          onCancel={backHome}
-          onFormSubmit={formik.handleSubmit}
-          formik={{
-            errors: {
-              ...(nameError ? { name: nameError } : {}),
-              ...(selectedDataset ? {} : { dataset: "Dataset is required" }),
-            },
-          }}
-          saveButtonText="Create Notebook"
-          backButtonText="Back"
+        <NoteBox
+          className="notebook-note-box"
+          data-tour="notebook-note-box"
+          message={t("datasets:label.notebookCreationNote")}
+        />
+
+        <TextField
+          fullWidth
+          label={t("datasets:label.notebookName")}
+          name="name"
+          value={formik.values.name}
+          onChange={formik.handleChange}
+          onBlur={formik.handleBlur}
+          error={Boolean(formik.touched.name && nameError)}
+          helperText={formik.touched.name ? nameError : ""}
+        />
+
+        <TextField
+          fullWidth
+          multiline
+          minRows={3}
+          label={t("datasets:label.notebookDescription")}
+          name="description"
+          value={formik.values.description}
+          onChange={formik.handleChange}
+          onBlur={formik.handleBlur}
+          error={Boolean(
+            formik.touched.description && formik.errors.description,
+          )}
+          helperText={formik.touched.description && formik.errors.description}
+        />
+
+        <DatasetAutocomplete
+          datasets={datasets}
+          selectedDataset={selectedDataset}
+          setSelectedDataset={setSelectedDataset}
         />
       </Box>
-    </CustomLayout>
+
+      <StepperNavigationFooter
+        onBack={backHome}
+        onNext={formik.handleSubmit}
+        nextDisabled={!isValid}
+        nextLabel={t("datasets:button.createNotebook")}
+        nextDataTour={tourContext?.run ? "create-notebook-button" : undefined}
+      />
+    </Box>
   );
 }

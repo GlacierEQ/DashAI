@@ -1,7 +1,12 @@
 // DatasetPreviewTable.js
 import React, { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
-import { DataGrid, useGridApiRef } from "@mui/x-data-grid";
+import {
+  MaterialReactTable,
+  useMaterialReactTable,
+} from "material-react-table";
+import { useTheme } from "@mui/material/styles";
+import { useTableLocalization } from "../../utils/useTableLocalization";
 import { dataTypesbyColumnType, columnTypesList } from "../../utils/typesLists";
 import SelectTypeCell from "../custom/SelectTypeCell";
 
@@ -13,13 +18,14 @@ function DatasetPreviewTable({
 }) {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
-  const apiRef = useGridApiRef();
+  const theme = useTheme();
+  const localization = useTableLocalization();
 
   useEffect(() => {
     if (previewData.sample && previewData.sample.length > 0) {
       const columnNames = Object.keys(previewData.schema);
 
-      const rows = columnNames.map((name, idx) => {
+      const newRows = columnNames.map((name, idx) => {
         const columnInfo = previewData.schema[name];
         return {
           id: idx,
@@ -31,13 +37,11 @@ function DatasetPreviewTable({
       });
 
       setLoading(false);
-      setRows(rows);
+      setRows(newRows);
     }
   }, [previewData, columnsSpec]);
 
-  const updateCellValue = async (id, field, newValue) => {
-    await apiRef.current.setEditCellValue({ id, field, value: newValue });
-    apiRef.current.stopCellEditMode({ id, field });
+  const updateCellValue = (id, field, newValue) => {
     setRows((prevRows) =>
       prevRows.map((row) => {
         if (row.id === id) {
@@ -66,76 +70,84 @@ function DatasetPreviewTable({
     setColumnsSpec(updateColumns);
   };
 
-  const renderSelectCell = (params) => {
-    let options = [];
-    if (params.field === "dataType") {
-      const column = rows.find((row) => row.id === params.id);
-      const selectedColumnType = column?.columnType;
-      options = dataTypesbyColumnType[selectedColumnType] || [];
-    } else if (params.field === "columnType") {
-      options = columnTypesList;
-    }
-
-    return (
-      <SelectTypeCell
-        id={params.id}
-        value={params.value}
-        field={params.field}
-        options={options}
-        updateValue={(id, field, newValue) =>
-          updateCellValue(id, field, newValue)
-        }
-      />
-    );
-  };
-
-  const columns = useMemo(() => [
-    {
-      field: "columnName",
-      headerName: "Column name",
-      minWidth: 200,
-      editable: false,
-    },
-    {
-      field: "example",
-      headerName: "Example",
-      minWidth: 200,
-      editable: false,
-    },
-    {
-      field: "columnType",
-      headerName: "Column type",
-      renderEditCell: (params) => isEditable && renderSelectCell(params),
-      minWidth: 200,
-      editable: isEditable,
-    },
-    {
-      field: "dataType",
-      headerName: "Data type",
-      renderEditCell: (params) => isEditable && renderSelectCell(params),
-      minWidth: 200,
-      editable: isEditable,
-    },
-  ]);
-
-  return (
-    <DataGrid
-      rows={rows}
-      columns={columns}
-      initialState={{
-        pagination: {
-          paginationModel: {
-            pageSize: 4,
-          },
+  const columns = useMemo(
+    () => [
+      {
+        accessorKey: "columnName",
+        header: "Column name",
+        size: 200,
+      },
+      {
+        accessorKey: "example",
+        header: "Example",
+        size: 200,
+      },
+      {
+        accessorKey: "columnType",
+        header: "Column type",
+        size: 200,
+        Cell: ({ row }) =>
+          isEditable ? (
+            <SelectTypeCell
+              id={row.original.id}
+              value={row.original.columnType}
+              field="columnType"
+              options={columnTypesList}
+              updateValue={(id, field, newValue) =>
+                updateCellValue(id, field, newValue)
+              }
+            />
+          ) : (
+            row.original.columnType
+          ),
+      },
+      {
+        accessorKey: "dataType",
+        header: "Data type",
+        size: 200,
+        Cell: ({ row }) => {
+          const options = dataTypesbyColumnType[row.original.columnType] || [];
+          return isEditable ? (
+            <SelectTypeCell
+              id={row.original.id}
+              value={row.original.dataType}
+              field="dataType"
+              options={options}
+              updateValue={(id, field, newValue) =>
+                updateCellValue(id, field, newValue)
+              }
+            />
+          ) : (
+            row.original.dataType
+          );
         },
-      }}
-      pageSize={4}
-      pageSizeOptions={[4, 5, 10]}
-      loading={loading}
-      apiRef={apiRef}
-      autoHeight
-    />
+      },
+    ],
+    [isEditable, rows],
   );
+
+  const table = useMaterialReactTable({
+    columns,
+    data: rows,
+    muiTableBodyCellProps: { sx: { whiteSpace: "pre" } },
+    getRowId: (row) => String(row.id),
+    state: { isLoading: loading },
+    enableSorting: false,
+    enableColumnFilters: false,
+    enableGlobalFilter: false,
+    enableDensityToggle: false,
+    enableFullScreenToggle: false,
+    enableHiding: false,
+    initialState: {
+      pagination: { pageIndex: 0, pageSize: 4 },
+    },
+    muiPaginationProps: {
+      rowsPerPageOptions: [4, 5, 10],
+    },
+    localization,
+  });
+
+  return <MaterialReactTable table={table} />;
 }
 
 DatasetPreviewTable.propTypes = {

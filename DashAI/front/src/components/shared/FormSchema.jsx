@@ -1,4 +1,5 @@
 import PropTypes from "prop-types";
+import { Box } from "@mui/material";
 import useFormSchema from "../../hooks/useFormSchema";
 import FormSchemaButtonGroup from "./FormSchemaButtonGroup";
 import FormSchemaParameterContainer from "./FormSchemaParameterContainer";
@@ -32,6 +33,7 @@ function FormSchema({
   saveButtonText,
   onValuesChange,
   showBorder = true,
+  hideButtons = false,
 }) {
   const { formik, modelSchema, loading, handleUpdateSchema } = useFormSchema({
     model,
@@ -42,7 +44,14 @@ function FormSchema({
   });
 
   return (
-    <>
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        minHeight: 0,
+      }}
+    >
       <FormSchemaParameterContainer showBorder={showBorder}>
         <FormSchemaRenderFields
           modelSchema={modelSchema}
@@ -55,15 +64,17 @@ function FormSchema({
         />
       </FormSchemaParameterContainer>
 
-      <FormSchemaButtonGroup
-        onCancel={onCancel}
-        onFormSubmit={onFormSubmit}
-        autoSave={autoSave}
-        formik={formik}
-        error={error}
-        saveButtonText={saveButtonText}
-      />
-    </>
+      {!hideButtons && (
+        <FormSchemaButtonGroup
+          onCancel={onCancel}
+          onFormSubmit={onFormSubmit}
+          autoSave={autoSave}
+          formik={formik}
+          error={error}
+          saveButtonText={saveButtonText}
+        />
+      )}
+    </Box>
   );
 }
 
@@ -80,6 +91,7 @@ FormSchema.propTypes = {
   saveButtonText: PropTypes.string,
   onValuesChange: PropTypes.func,
   showBorder: PropTypes.bool,
+  hideButtons: PropTypes.bool,
 };
 
 export default FormSchema;

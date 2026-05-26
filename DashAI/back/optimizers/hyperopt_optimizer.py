@@ -1,7 +1,3 @@
-import importlib
-
-from hyperopt import Trials, fmin, hp, rand, tpe  # noqa: F401
-
 from DashAI.back.core.enums.metrics import LevelEnum, SplitEnum
 from DashAI.back.core.schema_fields import (
     BaseSchema,
@@ -9,6 +5,7 @@ from DashAI.back.core.schema_fields import (
     int_field,
     schema_field,
 )
+from DashAI.back.core.utils import MultilingualString
 from DashAI.back.optimizers.base_optimizer import BaseOptimizer
 
 
@@ -16,19 +13,49 @@ class HyperOptSchema(BaseSchema):
     n_trials: schema_field(
         int_field(gt=0),
         placeholder=10,
-        description="The parameter 'n_trials' is the quantity of trials"
-        "per study. It must be of type positive integer.",
+        description=MultilingualString(
+            en=(
+                "The quantity of trials per study. It must be of type positive integer."
+            ),
+            es=("La cantidad de pruebas por estudio. Debe ser un entero positivo."),
+            pt=("A quantidade de tentativas por estudo. Deve ser um inteiro positivo."),
+        ),
+        alias=MultilingualString(en="N trials", es="N pruebas", pt="N tentativas"),
     )  # type: ignore
     sampler: schema_field(
         enum_field(enum=["tpe", "rand"]),
         placeholder="tpe",
-        description="Coefficient for 'rbf', 'poly' and 'sigmoid' kernels"
-        ". Must be in string format and can be 'scale' or 'auto'.",
+        description=MultilingualString(
+            en=(
+                "The sampler algorithm to use for hyperparameter optimization. "
+                "Must be 'tpe' (Tree-structured Parzen Estimator) or 'rand' (Random)."
+            ),
+            es=(
+                "El algoritmo de muestreo a usar para la optimización de "
+                "hiperparámetros. Debe ser 'tpe' (Tree-structured Parzen Estimator) "
+                "o 'rand' (Aleatorio)."
+            ),
+            pt=(
+                "O algoritmo de amostragem a usar para a otimização de "
+                "hiperparâmetros. Deve ser 'tpe' (Tree-structured Parzen Estimator) "
+                "ou 'rand' (Aleatório)."
+            ),
+        ),
+        alias=MultilingualString(en="Sampler", es="Muestreador", pt="Amostrador"),
     )  # type: ignore
 
 
 class HyperOptOptimizer(BaseOptimizer):
-    DISPLAY_NAME: str = "HyperOpt Optimizer"
+    DISPLAY_NAME: str = MultilingualString(
+        en="HyperOpt Optimizer",
+        es="Optimizador HyperOpt",
+        pt="Otimizador HyperOpt",
+    )
+    DESCRIPTION: str = MultilingualString(
+        en="Hyperparameter optimization using HyperOpt library.",
+        es="Optimización de hiperparámetros usando la librería HyperOpt.",
+        pt="Otimização de hiperparâmetros usando a biblioteca HyperOpt.",
+    )
     COLOR: str = "#FF5722"
     SCHEMA = HyperOptSchema
 
@@ -40,7 +67,7 @@ class HyperOptOptimizer(BaseOptimizer):
 
     def __init__(self, n_trials=None, sampler=None):
         self.n_trials = n_trials
-        self.sampler = importlib.import_module(f"hyperopt.{sampler}").suggest
+        self.sampler = sampler
 
     def search_space(self, hyperparams_data):
         """
@@ -54,6 +81,8 @@ class HyperOptOptimizer(BaseOptimizer):
         -------
             search_space: Dict with the information for the search space .
         """
+        from hyperopt import hp
+
         search_space = {}
 
         for _, hyperparameter, values, dtype in hyperparams_data:
@@ -84,11 +113,17 @@ class HyperOptOptimizer(BaseOptimizer):
         -------
             None
         """
+        import importlib
+
+        from hyperopt import Trials, fmin
+
         self.model = model
         self.input_dataset = input_dataset
         self.output_dataset = output_dataset
         self.parameters = parameters
         self.metric = metric["class"]
+
+        sampler = importlib.import_module(f"hyperopt.{self.sampler}").suggest
 
         param_mapping = {key: (obj, key) for obj, key, _, _ in self.parameters}
 
@@ -120,7 +155,7 @@ class HyperOptOptimizer(BaseOptimizer):
         fmin(
             fn=objective,
             space=search_space,
-            algo=self.sampler,
+            algo=sampler,
             max_evals=self.n_trials,
             trials=trials,
         )
@@ -136,3 +171,10 @@ class HyperOptOptimizer(BaseOptimizer):
                 params = {key: val[0] for key, val in trial["misc"]["vals"].items()}
                 trials.append({"params": params, "value": trial["result"]["loss"]})
         return trials
+
+    def get_best_params(self):
+        """Return the best parameters found during optimization."""
+        best_trial = min(
+            self.trials, key=lambda t: t["result"].get("loss", float("inf"))
+        )
+        return {key: val[0] for key, val in best_trial["misc"]["vals"].items()}

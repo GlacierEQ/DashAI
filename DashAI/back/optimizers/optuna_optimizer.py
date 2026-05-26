@@ -1,5 +1,3 @@
-import optuna
-
 from DashAI.back.core.enums.metrics import LevelEnum, SplitEnum
 from DashAI.back.core.schema_fields import (
     BaseSchema,
@@ -7,6 +5,7 @@ from DashAI.back.core.schema_fields import (
     int_field,
     schema_field,
 )
+from DashAI.back.core.utils import MultilingualString
 from DashAI.back.optimizers.base_optimizer import BaseOptimizer
 
 
@@ -14,8 +13,14 @@ class OptunaSchema(BaseSchema):
     n_trials: schema_field(
         int_field(gt=0),
         placeholder=10,
-        description="The parameter 'n_trials' is the quantity of trials"
-        "per study. It must be of type positive integer.",
+        description=MultilingualString(
+            en=(
+                "The quantity of trials per study. It must be of type positive integer."
+            ),
+            es=("La cantidad de pruebas por estudio. Debe ser un entero positivo."),
+            pt=("A quantidade de tentativas por estudo. Deve ser um inteiro positivo."),
+        ),
+        alias=MultilingualString(en="N trials", es="N pruebas", pt="N tentativas"),
     )  # type: ignore
     sampler: schema_field(
         enum_field(
@@ -30,19 +35,59 @@ class OptunaSchema(BaseSchema):
             ]
         ),
         placeholder="TPESampler",
-        description="Coefficient for 'rbf', 'poly' and 'sigmoid' kernels"
-        ". Must be in string format and can be 'scale' or 'auto'.",
+        description=MultilingualString(
+            en=(
+                "The sampler algorithm to use for hyperparameter optimization. "
+                "Different samplers use different strategies for exploring the "
+                "hyperparameter space."
+            ),
+            es=(
+                "El algoritmo de muestreo a usar para la optimización de "
+                "hiperparámetros. Diferentes muestreadores usan diferentes "
+                "estrategias para explorar el espacio de hiperparámetros."
+            ),
+            pt=(
+                "O algoritmo de amostragem a usar para a otimização de "
+                "hiperparâmetros. Diferentes amostradores usam diferentes "
+                "estratégias para explorar o espaço de hiperparâmetros."
+            ),
+        ),
+        alias=MultilingualString(en="Sampler", es="Muestreador", pt="Amostrador"),
     )  # type: ignore
     pruner: schema_field(
         enum_field(enum=["MedianPruner", "None"]),
         placeholder="None",
-        description="Coefficient for 'rbf', 'poly' and 'sigmoid' kernels"
-        ". Must be in string format and can be 'scale' or 'auto'.",
+        description=MultilingualString(
+            en=(
+                "The pruner to use for early stopping of unpromising trials. "
+                "'MedianPruner' stops trials below the median. 'None' disables pruning."
+            ),
+            es=(
+                "El podador a usar para detener tempranamente pruebas poco "
+                "prometedoras. 'MedianPruner' detiene pruebas bajo la mediana. "
+                "'None' desactiva la poda."
+            ),
+            pt=(
+                "O podador a usar para parada antecipada de tentativas pouco "
+                "promissoras. 'MedianPruner' para tentativas abaixo da mediana. "
+                "'None' desativa a poda."
+            ),
+        ),
+        alias=MultilingualString(en="Pruner", es="Podador", pt="Podador"),
     )  # type: ignore
 
 
 class OptunaOptimizer(BaseOptimizer):
-    DISPLAY_NAME: str = "Optuna Optimizer"
+    DISPLAY_NAME: str = MultilingualString(
+        en="Optuna Optimizer",
+        es="Optimizador Optuna",
+        pt="Otimizador Optuna",
+    )
+    DESCRIPTION: str = MultilingualString(
+        en="Hyperparameter optimization using Optuna library.",
+        es="Optimización de hiperparámetros usando la librería Optuna.",
+        pt="Otimização de hiperparâmetros usando a biblioteca Optuna.",
+    )
     COLOR: str = "#E91E63"
     SCHEMA = OptunaSchema
 
@@ -55,7 +100,7 @@ class OptunaOptimizer(BaseOptimizer):
 
     def __init__(self, n_trials=None, sampler=None, pruner=None):
         self.n_trials = n_trials
-        self.sampler = getattr(optuna.samplers, sampler)
+        self.sampler = sampler
         self.pruner = pruner
 
     def optimize(self, model, input_dataset, output_dataset, parameters, metric, task):
@@ -72,13 +117,17 @@ class OptunaOptimizer(BaseOptimizer):
         -------
             None
         """
+        import optuna
+
+        sampler = getattr(optuna.samplers, self.sampler)
+
         self.model = model
         self.input_dataset = input_dataset
         self.output_dataset = output_dataset
         self.parameters = parameters
         direction = "maximize" if metric["metadata"]["maximize"] else "minimize"
         study = optuna.create_study(
-            direction=direction, sampler=self.sampler(), pruner=self.pruner
+            direction=direction, sampler=sampler(), pruner=self.pruner
         )
 
         self.metric = metric["class"]
@@ -125,8 +174,14 @@ class OptunaOptimizer(BaseOptimizer):
         return self.model
 
     def get_trials_values(self):
+        import optuna
+
         trials = []
         for trial in self.study.trials:
             if trial.state == optuna.trial.TrialState.COMPLETE:
                 trials.append({"params": trial.params, "value": trial.value})
         return trials
+
+    def get_best_params(self):
+        """Return the best parameters found during optimization."""
+        return self.study.best_params

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Box, Typography, Tooltip, IconButton } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import ConverterClassColumnModal from "./ConverterTargetColumnModal";
 import HelpIcon from "@mui/icons-material/Help";
 import FormSchemaButtonGroup from "../../shared/FormSchemaButtonGroup";
@@ -10,6 +11,7 @@ import {
   getDatasetTypesByFilePath,
 } from "../../../api/datasets";
 import { useTourContext } from "../../tour/TourProvider";
+import { useTranslation } from "react-i18next";
 
 export default function ScopeStepConverter({
   supervised,
@@ -22,12 +24,15 @@ export default function ScopeStepConverter({
   setColumns,
   notebook,
   nextStep,
+  hideButtons = false,
 }) {
+  const theme = useTheme();
   const [datasetInfo, setDatasetInfo] = useState(0);
   const [datasetColumns, setDatasetColumns] = useState([]);
   const tourContext = useTourContext();
+  const allowedTypes = tool?.metadata?.allowed_types || [];
   const allowedDtypes = tool?.metadata?.allowed_dtypes || [];
-  const restrictedDtypes = tool?.metadata?.restricted_dtypes || [];
+  const { t } = useTranslation(["common", "datasets"]);
 
   const handleSubmit = () => {
     nextStep();
@@ -57,8 +62,8 @@ export default function ScopeStepConverter({
           ([columnName, typeInfo], idx) => ({
             id: idx,
             columnName: columnName,
-            valueType: typeInfo.type || "Unknown",
-            dataType: typeInfo.dtype || "Unknown",
+            valueType: typeInfo.type || t("common:unknown"),
+            dataType: typeInfo.dtype || t("common:unknown"),
             order: idx,
           }),
         );
@@ -81,33 +86,35 @@ export default function ScopeStepConverter({
       sx={{
         display: "flex",
         flexDirection: "column",
-        flexGrow: 1,
+        flex: 1,
         height: "100%",
-        gap: 1,
+        minHeight: 0,
       }}
       data-tour="column-selector-converter-container"
     >
       {/* Content */}
       <Box
         sx={{
-          flexGrow: 1,
+          flex: 1,
+          minHeight: 0,
           overflowY: "auto",
           display: "flex",
           flexDirection: "column",
           gap: 1,
         }}
       >
-        <Typography variant="subtitle2" gutterBottom>
-          Step 1: Select Scope
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Here you will configure which columns to apply the converter to.
+        <Typography
+          variant="body2"
+          sx={{ color: theme.palette.text.primary, mb: 0.5 }}
+        >
+          {t("datasets:label.selectScopeDescriptionColumns")}
         </Typography>
         {/* Scope selection UI */}
         <ColumnSelector
           file_path={notebook.file_path}
+          tool={tool}
+          allowedTypes={allowedTypes}
           allowedDtypes={allowedDtypes}
-          restrictedDtypes={restrictedDtypes}
           onSelectionChange={(columnsInfo) => {
             const processedColumns = columnsInfo.map((col) => ({
               idx: col.id + 1,
@@ -119,8 +126,11 @@ export default function ScopeStepConverter({
           }}
           onValidationChange={(isValid) => setIsColumnSelectionValid(isValid)}
         />
-        <Typography variant="body2" color="text.secondary">
-          Here you will configure which rows to apply the converter to.
+        <Typography
+          variant="body2"
+          sx={{ color: theme.palette.text.secondary }}
+        >
+          {t("datasets:label.selectScopeDescriptionRows")}
         </Typography>
         <RowSelector
           totalRows={datasetInfo?.total_rows || 0}
@@ -136,15 +146,14 @@ export default function ScopeStepConverter({
         sx={{
           flexShrink: 0,
           display: "flex",
-          alignItems: "center",
           justifyContent: "flex-end",
           gap: 1,
-          mb: 4,
+          pt: 1,
         }}
       >
         {supervised && (
           <Tooltip
-            title="Supervised converters will include this column in their learning process."
+            title={t("datasets:label.helpSelectClassColumn")}
             placement="top"
           >
             <IconButton>
@@ -168,18 +177,19 @@ export default function ScopeStepConverter({
             notebook={notebook}
           />
         )}
-
-        <FormSchemaButtonGroup
-          onFormSubmit={handleSubmit}
-          error={
-            !isColumnSelectionValid || (supervised ? !targetColumn : false)
-          }
-          saveButtonText={
-            Object.values(tool.schema.properties).length > 0 ? "Next" : "Save"
-          }
-          data-tour="converter-scope-next-button"
-        />
       </Box>
+
+      {/* Buttons */}
+      <FormSchemaButtonGroup
+        onFormSubmit={handleSubmit}
+        error={!isColumnSelectionValid || (supervised ? !targetColumn : false)}
+        saveButtonText={
+          Object.values(tool.schema.properties).length > 0
+            ? t("common:next")
+            : t("common:save")
+        }
+        data-tour="converter-scope-next-button"
+      />
     </Box>
   );
 }

@@ -1,18 +1,28 @@
 import logging
-import os
-import pickle
-import shutil
-from typing import Union
+from typing import TYPE_CHECKING, Literal, Optional, Union
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.exceptions import HTTPException
 from kink import di, inject
 from sqlalchemy import exc, select
-from sqlalchemy.orm import sessionmaker
 
 from DashAI.back.api.api_v1.schemas.runs_params import RunParams, UpdateRunParams
 from DashAI.back.core.enums.metrics import LevelEnum
-from DashAI.back.dependencies.database.models import Experiment, Metric, Run, RunStatus
+from DashAI.back.dependencies.database.models import (
+    GlobalExplainer,
+    LocalExplainer,
+    Metric,
+    ModelSession,
+    Prediction,
+    Run,
+    RunStatus,
+)
+from DashAI.back.services.scoring_service import ScoringService
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import sessionmaker
+
+    from DashAI.back.dependencies.registry import ComponentRegistry
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
@@ -66,52 +76,109 @@ def get_metrics_for_run(db, run_id: int):
 @router.get("/")
 @inject
 async def get_runs(
-    experiment_id: Union[int, None] = None,
-    session_factory: sessionmaker = Depends(lambda: di["session_factory"]),
+    model_session_id: Union[int, None] = None,
+    include_scores: bool = Query(False),
+    profile_id: Optional[str] = Query(None),
+    metric_split: Literal["train", "validation", "test"] = Query("test"),
+    session_factory: "sessionmaker" = Depends(lambda: di["session_factory"]),
+    component_registry: "ComponentRegistry" = Depends(lambda: di["component_registry"]),
 ):
-    """Retrieve a list of the stored experiment runs in the database.
+    """Retrieve a list of the stored model session runs in the database.
 
-    The runs can be filtered by experiment_id if the parameter is passed.
+    The runs can be filtered by model_session_id if the parameter is passed.
+    Optionally includes computed scores for each run.
 
     Parameters
     ----------
-    experiment_id: Union[int, None], optional
+    model_session_id: Union[int, None], optional
         If specified, the function will return all the runs associated with
-        the experiment, by default None.
+        the model session, by default None.
+    include_scores: bool, optional
+        If True, compute and include scores for each run, by default False.
+    profile_id: Optional[str], optional
+        Scoring profile ID (e.g., "balanced"). Only used if include_scores=True.
+        If not provided, defaults to first available profile for the session task.
+    metric_split: str, optional
+        Which metrics to use: "train", "validation", or "test", by default "test".
     session_factory : Callable[..., ContextManager[Session]]
         A factory that creates a context manager that handles a SQLAlchemy session.
         The generated session can be used to access and query the database.
+    component_registry : ComponentRegistry
+        Registry for metric metadata (injected).
 
     Returns
     -------
     List[dict]
-        A list with all selected runs.
+        A list with all selected runs. If include_scores=True, each run includes
+        a "score" dict with "value" (0-100) and "breakdown" (list of metrics).
 
     Raises
     ------
     HTTPException
-        If the experiment is not registered in the DB.
+        If the model session is not registered in the DB.
     """
     with session_factory() as db:
         try:
-            if experiment_id is not None:
+            model_session = None
+            if model_session_id is not None:
+                model_session = db.get(ModelSession, model_session_id)
+                if not model_session:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Model session not found",
+                    )
                 runs = db.scalars(
-                    select(Run).where(Run.experiment_id == experiment_id)
+                    select(Run).where(Run.model_session_id == model_session_id)
                 ).all()
                 if not runs:
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
-                        detail="Runs associated with Experiment not found",
+                        detail="Runs associated with Model Session not found",
                     )
-
-                # Add metrics to each run
-                for run in runs:
-                    metrics = get_metrics_for_run(db, run.id)
-                    run.train_metrics = metrics["train_metrics"]
-                    run.validation_metrics = metrics["validation_metrics"]
-                    run.test_metrics = metrics["test_metrics"]
             else:
                 runs = db.query(Run).all()
+
+            # Add metrics to each run
+            for run in runs:
+                metrics = get_metrics_for_run(db, run.id)
+                run.train_metrics = metrics["train_metrics"]
+                run.validation_metrics = metrics["validation_metrics"]
+                run.test_metrics = metrics["test_metrics"]
+
+            # Compute scores if requested
+            if include_scores and runs:
+                scoring_service = ScoringService()
+
+                # Determine profile to use
+                task_name = model_session.task_name if model_session else None
+                available_profiles = scoring_service.get_available_profiles(task_name)
+
+                if not profile_id and available_profiles:
+                    profile_id = available_profiles[0]["id"]
+
+                # Only compute if a profile is available
+                if profile_id:
+                    # Determine which metrics dict to use based on split
+                    metrics_key = f"{metric_split}_metrics"
+
+                    # Prepare runs data for scoring
+                    runs_metrics = [
+                        {
+                            "run_id": run.id,
+                            "metrics": getattr(run, metrics_key, {}) or {},
+                        }
+                        for run in runs
+                    ]
+
+                    # Compute all scores
+                    scores = scoring_service.compute_scores_for_comparison(
+                        runs_metrics, profile_id
+                    )
+
+                    # Attach scores to runs
+                    for run in runs:
+                        run.score = scores.get(run.id)
+
         except exc.SQLAlchemyError as e:
             log.exception(e)
             raise HTTPException(
@@ -125,7 +192,7 @@ async def get_runs(
 @inject
 async def get_run_by_id(
     run_id: int,
-    session_factory: sessionmaker = Depends(lambda: di["session_factory"]),
+    session_factory: "sessionmaker" = Depends(lambda: di["session_factory"]),
 ):
     """Retrieve the run associated with the provided ID.
 
@@ -175,8 +242,10 @@ async def get_run_by_id(
 async def get_hyperparameter_optimization_plot(
     run_id: int,
     plot_type: int,
-    session_factory: sessionmaker = Depends(lambda: di["session_factory"]),
+    session_factory: "sessionmaker" = Depends(lambda: di["session_factory"]),
 ):
+    import pickle
+
     with session_factory() as db:
         try:
             run_model = db.scalars(select(Run).where(Run.id == run_id)).all()
@@ -219,14 +288,14 @@ async def get_hyperparameter_optimization_plot(
 @inject
 async def upload_run(
     params: RunParams,
-    session_factory: sessionmaker = Depends(lambda: di["session_factory"]),
+    session_factory: "sessionmaker" = Depends(lambda: di["session_factory"]),
 ):
     """Create a new run.
 
     Parameters
     ----------
     params : int
-        The parameters of the new run, which includes the experiment, model name, run
+        The parameters of the new run, which includes the model session, model name, run
         name and description, among others.
     session_factory : Callable[..., ContextManager[Session]]
         A factory that creates a context manager that handles a SQLAlchemy session.
@@ -240,17 +309,18 @@ async def upload_run(
     Raises
     ------
     HTTPException
-        If the experiment with id experiment_id is not registered in the DB.
+        If the model session with id model_session_id is not registered in the DB.
     """
     with session_factory() as db:
         try:
-            experiment = db.get(Experiment, params.experiment_id)
-            if not experiment:
+            model_session = db.get(ModelSession, params.model_session_id)
+            if not model_session:
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found"
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Model session not found",
                 )
             run = Run(
-                experiment_id=params.experiment_id,
+                model_session_id=params.model_session_id,
                 model_name=params.model_name,
                 parameters=params.parameters,
                 optimizer_name=params.optimizer_name,
@@ -279,7 +349,7 @@ async def upload_run(
 @inject
 async def delete_run(
     run_id: int,
-    session_factory: sessionmaker = Depends(lambda: di["session_factory"]),
+    session_factory: "sessionmaker" = Depends(lambda: di["session_factory"]),
 ):
     """Delete the run associated with the provided ID from the database.
 
@@ -302,6 +372,8 @@ async def delete_run(
     HTTPException
         If the run was trained but the run_path does not exists.
     """
+    import os
+
     with session_factory() as db:
         try:
             run = db.get(Run, run_id)
@@ -333,7 +405,7 @@ async def delete_run(
 async def update_run(
     run_id: int,
     params: UpdateRunParams,
-    session_factory: sessionmaker = Depends(lambda: di["session_factory"]),
+    session_factory: "sessionmaker" = Depends(lambda: di["session_factory"]),
 ):
     """Updates the run with the provided ID.
 
@@ -422,7 +494,7 @@ async def update_run(
 @inject
 async def reset_run_by_id(
     run_id: int,
-    session_factory: sessionmaker = Depends(lambda: di["session_factory"]),
+    session_factory: "sessionmaker" = Depends(lambda: di["session_factory"]),
 ):
     with session_factory() as db:
         try:
@@ -443,6 +515,180 @@ async def reset_run_by_id(
             ) from e
 
 
+@router.get("/{run_id}/operations/count")
+@inject
+async def get_run_operations_count(
+    run_id: int,
+    session_factory: "sessionmaker" = Depends(lambda: di["session_factory"]),
+):
+    """Get the count of operations (explainers and predictions) for a run.
+
+    Parameters
+    ----------
+    run_id : int
+        ID of the run to count operations for.
+    session_factory : Callable[..., ContextManager[Session]]
+        A factory that creates a context manager that handles a SQLAlchemy session.
+        The generated session can be used to access and query the database.
+
+    Returns
+    -------
+    dict
+        A dictionary with 'explainers' and 'predictions' counts.
+
+    Raises
+    ------
+    HTTPException
+        If the run is not found or there's a database error.
+    """
+    with session_factory() as db:
+        try:
+            run = db.get(Run, run_id)
+            if not run:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
+                )
+
+            # Count global explainers
+            global_explainers_count = (
+                db.query(GlobalExplainer)
+                .filter(GlobalExplainer.run_id == run_id)
+                .count()
+            )
+
+            # Count local explainers
+            local_explainers_count = (
+                db.query(LocalExplainer).filter(LocalExplainer.run_id == run_id).count()
+            )
+
+            # Count predictions
+            predictions_count = (
+                db.query(Prediction).filter(Prediction.run_id == run_id).count()
+            )
+
+            return {
+                "explainers": global_explainers_count + local_explainers_count,
+                "predictions": predictions_count,
+            }
+        except exc.SQLAlchemyError as e:
+            log.exception(e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal database error",
+            ) from e
+
+
+@router.delete("/{run_id}/operations")
+@inject
+async def delete_run_operations(
+    run_id: int,
+    session_factory: "sessionmaker" = Depends(lambda: di["session_factory"]),
+):
+    """Delete all operations (explainers and predictions) associated with a run.
+
+    Parameters
+    ----------
+    run_id : int
+        ID of the run whose operations should be deleted.
+    session_factory : Callable[..., ContextManager[Session]]
+        A factory that creates a context manager that handles a SQLAlchemy session.
+        The generated session can be used to access and query the database.
+
+    Returns
+    -------
+    dict
+        A dictionary indicating the number of deleted items.
+
+    Raises
+    ------
+    HTTPException
+        If the run is not found or there's a database error.
+    """
+    import os
+
+    with session_factory() as db:
+        try:
+            run = db.get(Run, run_id)
+            if not run:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
+                )
+
+            deleted_count = {
+                "global_explainers": 0,
+                "local_explainers": 0,
+                "predictions": 0,
+            }
+
+            # Delete global explainers
+            global_explainers = (
+                db.query(GlobalExplainer).filter(GlobalExplainer.run_id == run_id).all()
+            )
+            for explainer in global_explainers:
+                # Delete associated files
+                if explainer.plot_path and os.path.exists(explainer.plot_path):
+                    try:
+                        remove_path(explainer.plot_path)
+                    except Exception as e:
+                        log.warning(f"Failed to delete plot file: {e}")
+                if explainer.explanation_path and os.path.exists(
+                    explainer.explanation_path
+                ):
+                    try:
+                        remove_path(explainer.explanation_path)
+                    except Exception as e:
+                        log.warning(f"Failed to delete explanation file: {e}")
+                db.delete(explainer)
+                deleted_count["global_explainers"] += 1
+
+            # Delete local explainers
+            local_explainers = (
+                db.query(LocalExplainer).filter(LocalExplainer.run_id == run_id).all()
+            )
+            for explainer in local_explainers:
+                # Delete associated files
+                if explainer.plots_path and os.path.exists(explainer.plots_path):
+                    try:
+                        remove_path(explainer.plots_path)
+                    except Exception as e:
+                        log.warning(f"Failed to delete plots directory: {e}")
+                if explainer.explanation_path and os.path.exists(
+                    explainer.explanation_path
+                ):
+                    try:
+                        remove_path(explainer.explanation_path)
+                    except Exception as e:
+                        log.warning(f"Failed to delete explanation file: {e}")
+                db.delete(explainer)
+                deleted_count["local_explainers"] += 1
+
+            # Delete predictions
+            predictions = db.query(Prediction).filter(Prediction.run_id == run_id).all()
+            for prediction in predictions:
+                # Delete associated files
+                if prediction.results_path and os.path.exists(prediction.results_path):
+                    try:
+                        remove_path(prediction.results_path)
+                    except Exception as e:
+                        log.warning(f"Failed to delete prediction results: {e}")
+                db.delete(prediction)
+                deleted_count["predictions"] += 1
+
+            db.commit()
+
+            return {
+                "deleted": True,
+                "count": deleted_count,
+                "total": sum(deleted_count.values()),
+            }
+        except exc.SQLAlchemyError as e:
+            log.exception(e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal database error",
+            ) from e
+
+
 def reset_run(run):
     """
     Reset a run to NOT_STARTED status and delete associated files.
@@ -452,6 +698,8 @@ def reset_run(run):
     run : Run
         The run object to reset.
     """
+    import os
+
     setattr(run, "status", RunStatus.NOT_STARTED)
     setattr(run, "train_metrics", None)
     setattr(run, "validation_metrics", None)
@@ -496,6 +744,9 @@ def remove_path(path):
     ValueError
         Raised if the path is not a file, directory, or symbolic link.
     """
+    import os
+    import shutil
+
     if os.path.isfile(path) or os.path.islink(path):
         os.remove(path)
     elif os.path.isdir(path):

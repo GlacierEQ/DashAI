@@ -18,7 +18,6 @@ export const getJobChanges = async (
   server_now: string;
   queue_empty: boolean;
   recently_completed: boolean;
-  all_jobs: any[];
 }> => {
   const response = await api.get<any>("/v1/job/changes", {
     params: { since },
@@ -176,12 +175,12 @@ export const enqueueGenerativeProcessJob = async (
 };
 
 export const enqueueConverterJob = async (
-  converterListId: number,
+  converterId: number,
 ): Promise<object> => {
   const data = {
-    job_type: "ConverterListJob",
+    job_type: "ConverterJob",
     kwargs: {
-      converter_list_id: converterListId,
+      converter_id: converterId,
     },
     stop_when_queue_empties: true,
   };

@@ -1,18 +1,43 @@
 // DatasetSummaryTable.js
 import React, { useEffect, useState } from "react";
 import { useSnackbar } from "notistack";
-import { DataGrid } from "@mui/x-data-grid";
+import {
+  MaterialReactTable,
+  useMaterialReactTable,
+} from "material-react-table";
+import { useTheme } from "@mui/material/styles";
+import { useTableLocalization } from "../../../utils/useTableLocalization";
 import {
   getDatasetSampleByFilePath as getDatasetSampleRequest,
   getDatasetTypesByFilePath as getDatasetTypesRequest,
 } from "../../../api/datasets";
 import { Box, CircularProgress } from "@mui/material";
 
-function DatasetSummaryTable({ file, ...props }) {
+function DatasetSummaryTableContent({ rows, columns, localization, theme }) {
+  const table = useMaterialReactTable({
+    columns,
+    data: rows,
+    mrtTheme: { baseBackgroundColor: theme.palette.ui.panelDark },
+    muiTablePaperProps: { elevation: 0 },
+    localization,
+    initialState: { density: "compact" },
+    enablePagination: false,
+    enableTopToolbar: false,
+    enableBottomToolbar: false,
+    enableColumnActions: false,
+    enableSorting: false,
+  });
+
+  return <MaterialReactTable table={table} />;
+}
+
+function DatasetSummaryTable({ file }) {
   const [loading, setLoading] = useState(true);
   const { enqueueSnackbar } = useSnackbar();
   const [rows, setRows] = useState([]);
   const [columns, setColumns] = useState([]);
+  const theme = useTheme();
+  const localization = useTableLocalization();
 
   const getDatasetInfo = async () => {
     setLoading(true);
@@ -20,24 +45,29 @@ function DatasetSummaryTable({ file, ...props }) {
       const dataset = await getDatasetSampleRequest(file);
       const types = await getDatasetTypesRequest(file);
 
-      // Create DataGrid columns
+      // Create MRT columns
       const gridColumns = [
-        { field: "rowLabel", headerName: "", width: 150, sortable: false },
+        {
+          accessorKey: "rowLabel",
+          header: "",
+          size: 150,
+          enableSorting: false,
+        },
       ];
       Object.keys(dataset).forEach((col) => {
         gridColumns.push({
-          field: col,
-          headerName: col,
-          flex: 1,
-          minWidth: 150,
-          sortable: false,
+          accessorKey: col,
+          header: col,
+          grow: 1,
+          minSize: 150,
+          enableSorting: false,
         });
       });
 
       // Build rows: 1 row for column type, 1 for data type, 1 for sample
-      const typeRow = { id: 0, rowLabel: "Column Type" };
-      const dtypeRow = { id: 1, rowLabel: "Data Type" };
-      const sampleRow = { id: 2, rowLabel: "Example" };
+      const typeRow = { rowLabel: "Column Type" };
+      const dtypeRow = { rowLabel: "Data Type" };
+      const sampleRow = { rowLabel: "Example" };
 
       Object.keys(dataset).forEach((col) => {
         typeRow[col] = types[col]?.type ?? "";
@@ -68,24 +98,11 @@ function DatasetSummaryTable({ file, ...props }) {
           <CircularProgress />
         </Box>
       ) : (
-        <DataGrid
+        <DatasetSummaryTableContent
           rows={rows}
           columns={columns}
-          hideFooter
-          autoHeight
-          disableColumnMenu
-          disableRowSelectionOnClick
-          sx={{
-            "& .MuiDataGrid-columnHeaders": {
-              fontWeight: "bold",
-            },
-            "& .MuiDataGrid-cell": {
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            },
-          }}
-          {...props}
+          localization={localization}
+          theme={theme}
         />
       )}
     </Box>
